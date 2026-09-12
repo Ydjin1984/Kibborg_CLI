@@ -53,6 +53,13 @@ export interface ServerConfig {
   instance: string
   /** Protocol version the mDNS record advertises. */
   version: string
+  /**
+   * Port the server listens on.
+   *
+   * The mDNS record has to advertise the real port, and the plugin cannot read
+   * the launcher's --port from anywhere else.
+   */
+  port: number
 }
 
 export const Config: z<ServerConfig> = z.object({
@@ -63,6 +70,7 @@ export const Config: z<ServerConfig> = z.object({
   mdns: z.boolean().default(false),
   instance: z.string().default(''),
   version: z.string().default(''),
+  port: z.natural().default(7317),
 })
 
 /** Whether a peer address is this machine. */
@@ -85,6 +93,7 @@ export function apply(ctx: Context, config?: ServerConfig): void {
     mdns: config?.mdns ?? false,
     instance: config?.instance ?? '',
     version: config?.version ?? '',
+    port: config?.port ?? 7317,
   }
   if (resolved.trustedHosts.length > 0 && resolved.token === '') {
     throw new Error('kibborg-server: a non-loopback deployment requires a token; refusing to serve without one')
@@ -148,7 +157,7 @@ export function apply(ctx: Context, config?: ServerConfig): void {
     // is required, and the client is still given the secret out of band.
     const published = publishService({
       ...(resolved.instance === '' ? {} : { instance: resolved.instance }),
-      port: Number(process.env['KIBBORG_SERVE_PORT'] ?? 7317),
+      port: resolved.port,
       tokenRequired: resolved.token !== '',
       addresses: localAddresses(),
       ...(resolved.version === '' ? {} : { version: resolved.version }),

@@ -315,7 +315,7 @@ async function panels(context: LocalCommandContext, argument: string): Promise<C
  * @param context - the surface state and the host gateway.
  * @returns what the command did, or a refusal for an unknown local name.
  */
-export async function runLocalCommand(line: string, context: LocalCommandContext): Promise<CommandOutcome> {
+export async function runLocalCommand(line: string, context: LocalCommandContext): Promise<CommandOutcome | undefined> {
   const { name, argument } = splitCommand(line)
   trace(`local /${name}`)
   switch (name) {
@@ -342,7 +342,9 @@ export async function runLocalCommand(line: string, context: LocalCommandContext
     case 'transcript': return await transcript(context, argument)
     case 'panel': return { ok: false, error: 'the tabs modal needs an interactive terminal' }
     case 'panels': return await panels(context, argument)
-    default: return { ok: false, error: `unknown command: /${name}` }
+    // A command that is listed for the palette but answered elsewhere (by the
+    // surface or by the host) is not an error here: the router passes it on.
+    default: return undefined
   }
 }
 
@@ -358,7 +360,10 @@ export async function routeCommand(
   context: LocalCommandContext,
   host: (line: string) => Promise<CommandOutcome>,
 ): Promise<CommandOutcome> {
-  if (isLocalCommand(line)) return await runLocalCommand(line, context)
+  if (isLocalCommand(line)) {
+    const local = await runLocalCommand(line, context)
+    if (local !== undefined) return local
+  }
   return await host(line)
 }
 

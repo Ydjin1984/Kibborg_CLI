@@ -577,6 +577,14 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
     if (event.type === 'turn/end') {
       const reason = event.data.reason as { kind: string; error?: { message: string } }
       turnsSeen += 1
+      if (reason.kind === 'error') {
+        renderer.error(reason.error?.message ?? 'the turn failed')
+        return finish('error', reason.error?.message ?? 'the turn failed')
+      }
+      // A turn that completed on its own is a finished answer, even when the
+      // budget allowed exactly this many turns: only a turn that ended wanting to
+      // continue is what the budget actually stops.
+      if (reason.kind === 'completed') return finish('completed')
       if (options.maxTurns !== undefined && turnsSeen >= options.maxTurns) {
         // The budget is spent: stop the session rather than let another turn
         // start behind the caller's back.
@@ -589,10 +597,6 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
       }
       if (reason.kind === 'aborted') renderer.notice('turn cancelled')
       if (reason.kind === 'blocked') renderer.notice('the turn was blocked before it ran')
-      if (reason.kind === 'error') {
-        renderer.error(reason.error?.message ?? 'the turn failed')
-        return finish('error', reason.error?.message ?? 'the turn failed')
-      }
       return finish(reason.kind)
     }
   }

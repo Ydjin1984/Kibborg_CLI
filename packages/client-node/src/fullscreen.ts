@@ -62,6 +62,9 @@ const LINE_LIMIT = 4000
 /** Repaint interval while a turn runs, in milliseconds. */
 const ANIMATION_MS = 160
 
+/** Two Ctrl+C presses within this window leave the session. */
+const INTERRUPT_WINDOW_MS = 1500
+
 /** What the fullscreen mode needs from the surface. */
 export interface FullscreenSession {
   /** The API client this invocation talks through. */
@@ -226,6 +229,8 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
   let running = false
   let runningSince = 0
   let tick = 0
+  /** When the last Ctrl+C arrived, so two presses inside the window leave. */
+  let lastInterrupt = 0
   /** Conversation lines scrolled back from the tail; 0 shows the newest. */
   let scroll = 0
   let controller: AbortController | undefined
@@ -497,12 +502,28 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
           render()
           return
         }
-        exitCode = 130
+        // Two presses leave, the first only says how: one stray Ctrl+C must not
+        // drop a session the user meant to keep.
+        if (Date.now() - lastInterrupt <= INTERRUPT_WINDOW_MS) {
+          exitCode = 130
+          return
+        }
+        lastInterrupt = Date.now()
+        hint = 'ещё раз Ctrl+C — выйти'
+        render()
         return
       case 'ctrl-d':
         exitCode = 0
         return
       case 'escape':
+        // Escape is the interrupt key while a turn runs, as in the inline loop.
+        if (running) {
+          controller?.abort()
+          void session.client.sessions.cancel({ sessionId: session.sessionId })
+          hint = 'прерываю ход'
+          render()
+          return
+        }
         draft = ''
         hint = ''
         render()

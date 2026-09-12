@@ -100,7 +100,7 @@ if (Test-Path $workspaceFile) {
     Write-Host 'Kibborg CLI уже входит в рабочие пространства harness.' -ForegroundColor Cyan
   }
 } else {
-  Write-Warning "Не найден $workspaceFile: сборка Kibborg CLI может не найти зависимости harness."
+  Write-Warning "Не найден ${workspaceFile}: сборка Kibborg CLI может не найти зависимости harness."
 }
 
 Write-Host 'Копирую Kibborg CLI в раскладку…' -ForegroundColor Yellow

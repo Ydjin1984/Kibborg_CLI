@@ -111,7 +111,14 @@ interface SessionOptions {
  * @returns the resolved mode, or `undefined` when the deployment default applies.
  */
 function permissionModeOf(command: Command, options: SessionOptions): string | undefined {
-  const shorthand = options.yolo === true
+  // Commander stores a flag declared as `--yolo, --dangerously-skip-permissions`
+  // under the LAST name it was given, so both spellings are read here.
+  const yolo = options.yolo === true || (options as { dangerouslySkipPermissions?: boolean }).dangerouslySkipPermissions === true
+  const shorthands = [options.safe === true, options.auto === true, yolo].filter(Boolean).length
+  if (shorthands > 1) {
+    command.error('error: --safe, --auto and --yolo are mutually exclusive')
+  }
+  const shorthand = yolo
     ? 'danger-full-access'
     : options.safe === true
       ? 'read-only'
@@ -502,10 +509,9 @@ export function parseKiborgArgs(argv: readonly string[], version: string): Kibor
     .command('resume [sessionId]')
     .description('resume a session; without an id, continue the newest session of this directory')
     .option('--fork', 'branch the resumed session into a new one')
-    .option('--print-history', 'print the resumed history instead of starting a session')
     .option('--history <messages>', 'how many history messages to print (default 200)')
     .option('-w, --worktree [name]', 'create a git worktree for this invocation and run inside it'))
-    .action((sessionId: string | undefined, options: SessionOptions & { fork?: boolean; printHistory?: boolean; history?: string; worktree?: string | boolean }) => {
+    .action((sessionId: string | undefined, options: SessionOptions & { fork?: boolean; history?: string; worktree?: string | boolean }) => {
       const permissionMode = permissionModeOf(program, options)
       const historyLimit = options.history === undefined ? undefined : Number.parseInt(options.history, 10)
       resolved = {

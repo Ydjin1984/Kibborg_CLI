@@ -168,7 +168,15 @@ export async function searchSessions(
   const controller = new AbortController()
   const found = await client.sessions.search({ query }, controller.signal)
   if (!found.result.ok) {
-    process.stderr.write(`kibborg: session.search failed: ${found.result.error.message}\n`)
+    // Content search is switched off in this profile (the base layer mounts the
+    // index with `openAt: never`), so say that instead of leaking the raw error:
+    // a user cannot act on "session search failed".
+    const reason = found.result.error.message
+    process.stderr.write(
+      reason.toLowerCase().includes('disabled') || reason.toLowerCase().includes('search failed')
+        ? 'kibborg: поиск по содержимому сессий выключен в этом профиле; используйте kibborg sessions и kibborg resume\n'
+        : `kibborg: session.search failed: ${reason}\n`,
+    )
     return 1
   }
   const items = found.result.value.items

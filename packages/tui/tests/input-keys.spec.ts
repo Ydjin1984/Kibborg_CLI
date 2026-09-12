@@ -25,6 +25,8 @@ describe('parseKeys', () => {
 
   it('reads ordinary keys, arrows, and control keys from the Win32 reports', () => {
     expect(parseKeys('\u001B[65;30;97;1;0;1_').keys).toEqual([{ kind: 'char', text: 'a' }])
+    // Shift produces a different code point, and it has to be typed too.
+    expect(parseKeys('\u001B[65;30;65;1;16;1_').keys).toEqual([{ kind: 'char', text: 'A' }])
     expect(parseKeys('\u001B[38;72;0;1;0;1_').keys).toEqual([{ kind: 'up' }])
     expect(parseKeys('\u001B[40;80;0;1;0;1_').keys).toEqual([{ kind: 'down' }])
     expect(parseKeys('\u001B[9;15;9;1;16;1_').keys).toEqual([{ kind: 'shift-tab' }])

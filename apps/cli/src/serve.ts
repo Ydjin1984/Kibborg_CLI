@@ -80,6 +80,8 @@ ${trusted === '' ? '          []' : trusted}
         log: ${options.log ? 'true' : 'false'}
         mdns: !!js process.env.KIBBORG_SERVE_MDNS === '1'
         instance: !!js process.env.KIBBORG_SERVE_INSTANCE ?? ''
+        # The mDNS record advertises this port, so it has to be the real one.
+        port: ${String(options.port)}
 
 # The terminal client half answers one invocation and then asks the process to
 # exit; a server must outlive that, so the row is switched off here.

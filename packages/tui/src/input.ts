@@ -118,7 +118,10 @@ function decodeWin32(fields: readonly number[]): KeyEvent | undefined {
     if (letter === 'o') return { kind: 'ctrl-o' }
     if (letter === 'u') return { kind: 'ctrl-u' }
   }
-  if (!ctrl && !shift && codePoint !== undefined && codePoint >= 32) {
+  // Shift changes the character a key produces (`a` → `A`, `1` → `!`) and the
+  // surface already receives the resulting code point, so a shifted letter must
+  // still be typed: dropping it made capitals impossible in Windows Terminal.
+  if (!ctrl && codePoint !== undefined && codePoint >= 32) {
     return { kind: 'char', text: String.fromCharCode(codePoint) }
   }
   return undefined

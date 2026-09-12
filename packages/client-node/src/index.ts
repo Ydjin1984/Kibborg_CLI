@@ -26,7 +26,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import { paletteForTheme, statusLine } from '@kibborg/tui'
-import { LOCAL_COMMANDS, routeCommand, splitCommand, type SurfaceState } from './command-router.ts'
+import { LOCAL_COMMANDS, nearestCommand, routeCommand, splitCommand, type SurfaceState } from './command-router.ts'
 import { loadCompletionSources } from './completion-sources.ts'
 import { exportSessionLog } from './export-session.ts'
 import { readIntent } from './intent.ts'
@@ -416,7 +416,16 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
   if (text.startsWith('/')) {
     const registered = attached ? [] : await listCommands(ctx, sessionId)
     const names = new Set([...LOCAL_COMMANDS.map(command => command.name), ...registered.map(entry => entry.name)])
-    if (names.has(splitCommand(text).name)) {
+    const typed = splitCommand(text).name
+    // Commands that exist only where a terminal owns the session cannot run here:
+    // a one-shot run has nothing to switch, so it says so instead of prompting.
+    const interactiveOnly = new Set(['new', 'resume', 'sessions', 'quit'])
+    if (interactiveOnly.has(typed)) {
+      process.stderr.write(`kibborg: /${typed} works in an interactive session; start kibborg without -p\n`)
+      ctx.appExit?.(2)
+      return
+    }
+    if (names.has(typed)) {
       // The surface's own commands answer themselves here too: a one-shot
       // `/status` is the same request as the one typed at the composer.
       const state = surfaceStateOf(badge, git)
@@ -430,6 +439,14 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
       if (!outcome.ok) process.stderr.write(`kibborg: ${outcome.error ?? 'command failed'}\n`)
       else if (outcome.text !== undefined) process.stdout.write(`  ${outcome.text}\n`)
       ctx.appExit?.(outcome.ok ? 0 : 1)
+      return
+    }
+    // A near miss is a typo, not a prompt: sending `/statuss` to the model would
+    // start a paid turn the user never asked for.
+    const suggestion = nearestCommand(text, [...names])
+    if (suggestion !== undefined) {
+      process.stderr.write(`kibborg: unknown command /${typed} — did you mean /${suggestion}?\n`)
+      ctx.appExit?.(2)
       return
     }
   }
@@ -507,6 +524,12 @@ async function answerOnce(
   }
   if (writer !== undefined) {
     const schema = await resolveSchema(intent?.jsonSchema)
+    // A schema the launcher cannot read is a configuration error, not a warning:
+    // silently skipping the check would report success for an unvalidated answer.
+    if (schema === null) {
+      ctx.appExit?.(2)
+      return
+    }
     const code = writer.finish(outcome)
     const structured = schema === undefined ? undefined : parseStructured(outcome.answer, schema)
     if (structured?.error !== undefined) {
@@ -547,7 +570,12 @@ function machineOutputOf(intent: ClientIntent | undefined): { readonly format: O
   return { format }
 }
 
-/** Read a schema the launcher left as a path, or pass an inline one through. */
+/**
+ * Read a schema the launcher left as a path, or pass an inline one through.
+ * @param schema - the inline schema, or `{ file }` pointing at one.
+ * @returns the parsed schema, `undefined` when there is none, or `null` when the
+ * file exists in the request but cannot be read — the caller then fails the run.
+ */
 async function resolveSchema(schema: unknown): Promise<unknown> {
   if (schema === null || typeof schema !== 'object') return undefined
   const file = (schema as { file?: unknown }).file
@@ -556,7 +584,7 @@ async function resolveSchema(schema: unknown): Promise<unknown> {
     return JSON.parse(await readFile(file, 'utf8'))
   } catch (error) {
     process.stderr.write(`kibborg: could not read --json-schema ${file}: ${error instanceof Error ? error.message : String(error)}\n`)
-    return undefined
+    return null
   }
 }
 

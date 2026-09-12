@@ -66,8 +66,8 @@ import { parseAnswerLine } from './interaction.ts'
 /** Two Ctrl+C presses within this window leave the process. */
 export const INTERRUPT_WINDOW_MS = 800
 
-/** Version shown in the surface's brand header. */
-const SURFACE_VERSION = 'v1.0.0'
+/** Version shown in the surface's brand header; it tracks the package version. */
+const SURFACE_VERSION = 'v0.1.0'
 
 /** ANSI escape sequences, stripped when a line moves into the transcript log. */
 const ANSI_PATTERN = /\u001B\[[0-9;]*[A-Za-z]/gu
