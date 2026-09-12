@@ -1,0 +1,39 @@
+[Unit]
+Description=Kibborg CLI server (dsh API gateway over HTTP/WebSocket)
+Documentation=file:///opt/kibborg/Kibborg_CLI/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kibborg
+Group=kibborg
+WorkingDirectory=/opt/kibborg
+# The token never lives in this unit: it is read from an EnvironmentFile whose
+# permissions are 0600 and whose owner is the service account.
+EnvironmentFile=/etc/kibborg/serve.env
+Environment=DSH_HOME=/var/lib/kibborg/.dsh
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node /opt/kibborg/Kibborg_CLI/apps/cli/lib/bin.js serve --host ${KIBBORG_SERVE_HOST} --port ${KIBBORG_SERVE_PORT}
+# SIGTERM is the graceful path: the profile disposes its fibers (closing routes,
+# WebSocket downlinks, and the HTTP server) before the process exits.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=3
+
+# Hardening: the service owns one directory tree and needs no privileges.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/kibborg
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

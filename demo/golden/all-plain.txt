@@ -1,0 +1,303 @@
+  ────────────────────────────────────────────────────────────────────────────────
+  [1/14] welcome — Welcome (first-run)  (K1/K2)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  ██╗  ██╗██╗██████╗ ██████╗  ██████╗ ██████╗  ██████╗
+  ██║ ██╔╝██║██╔══██╗██╔══██╗██╔═══██╗██╔══██╗██╔════╝
+  █████╔╝ ██║██████╔╝██████╔╝██║   ██║██████╔╝██║  ███╗
+  ██╔═██╗ ██║██╔══██╗██╔══██╗██║   ██║██╔══██╗██║   ██║
+  ██║  ██╗██║██████╔╝██████╔╝╚██████╔╝██║  ██║╚██████╔╝
+  ╚═╝  ╚═╝╚═╝╚═════╝ ╚═════╝  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝
+  ░▒▓███▓░░▓███▓▒░▒▓███▓░░     v1.0.0
+
+  ~/Projects/my-app   main* +12 ~4   DeepSeek V4 Flash   Agent
+
+  Recent
+    2h  Auth guard + JWT refresh · pending tests                        8f31
+    1d  Repo scan · 4 findings in src/auth                              a91c
+    3d  Worktree feat/payments · plan accepted                          c0e2
+
+  [enter]  New session
+  [f3]     Resume picker
+  [ctrl+w] Isolated worktree
+  [ctrl+p] Command palette
+
+  tip  Shift+Tab cycles Ask → Plan → Agent → YOLO
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [2/14] compact — Compact header  (K1)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ──────────────────────────────────────────────────────────────────────────────
+  Recent   2h  Auth guard + JWT refresh    8f31 ↵
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [3/14] session — Session: лента, composer, статус  (K1.2/K1.3)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Session · inline-режим (дефолт)
+
+  ◆ 8f31  Auth guard · ~/Projects/my-app                               Agent · write
+
+  You
+  проанализируй этот проект и найди проблемы
+
+    ✳  Scanning…  4.2s   esc interrupt   12.4k tok
+
+    ✓  read     README.md
+    ✓  read     package.json
+    ⚙  search   src/**  auth
+       ⎿  14 files · 3 matches in src/auth/jwt.ts
+    ✓  read     src/auth/jwt.ts
+
+  Planning
+    1. Inspect project
+    2. Read project manifest
+    3. Scan source  ←
+    4. Report findings
+    [e] edit plan   [enter] execute   [esc] discard
+
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  |   > _                                                                            |
+  |     @ files   / commands   ! shell   shift+enter nl                              |
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  DeepSeek V4 Flash · ctx 18% ▓▓░░░░░░░░ · 4.2s · main* · Agent
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [4/14] palette — Slash-палитра (fuzzy-подсветка)  (K4.1/K4.9)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Slash-палитра · fuzzy, группы, preview
+
+  /mo█
+  ╭─ commands ────────────────────────────────────────────────────────────────────────╮
+     MODEL
+  ▸ /model      switch model                ctrl+m
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+    /model [name]   DeepSeek V4 Flash · local · 128k
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [5/14] permission — Permission (3 цвета рамки)  (K3.1)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Permission · цвет рамки = тип действия
+
+  ╭─ Allow Edit  src/auth/jwt.ts ─────────────────────────────────────────────────────╮
+  │ + verifyRefresh()                                                                │
+  │ + rotate tokens on 401                                                           │
+  │                                                                                  │
+  │ [y] once   [a] always session   [n] deny   [esc]                                 │
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+  ╭─ Allow Bash  npm run build ───────────────────────────────────────────────────────╮
+  │ npm run build   ← shell-инструмент, один «чужой» цвет                            │
+  │ [y] once   [a] always session   [n] deny   [esc]                                 │
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+  ╭─ Allow Bash  git push --force origin main ────────────────────────────────────────╮
+  │ destructive-действие: фокус по умолчанию на [n]                                  │
+  │ [y] once   [a] always session   [n] deny  ← фокус   [esc]                        │
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [6/14] question — Question  (K3.2)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Question · single/multi-select + custom
+
+  ╭─ Question  1/2 ───────────────────────────────────────────────────────────────────╮
+  │ Какой объём ревью нужен?                                                         │
+  │ ▸ only src/auth                                                                  │
+  │   весь src                                                                       │
+  │   весь репозиторий                                                               │
+  │ other… > _                                                                       │
+  │                                                                                  │
+  │ [↑↓] выбрать   [space] отметить   [enter] подтвердить                            │
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [7/14] plan — Plan review  (K3.3)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Plan review · правки кода запрещены до approve
+
+  ╭─ Plan review ─────────────────────────────────────────────────────────────────────╮
+  │ 1. Inspect project structure                                                     │
+  │ 2. Read manifests and entrypoints                                                │
+  │ 3. Scan src/ for auth flow regressions                                           │
+  │ 4. Report findings with evidence                                                 │
+  │                                                                                  │
+  │ [e] edit   [enter] approve & execute   [esc] reject                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [8/14] resume — Resume picker  (K2.2)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Resume picker · recap, git, модель, режим
+
+  Resume session                                                       /resume
+  ╭───────────────────────────────────────────────────────────────────────────────────╮
+  │ ▸ 8f31  2h   Auth guard + JWT refresh                                            │
+  │        main*  Agent  DeepSeek V4  +18/-4  pending tests                          │
+  │     a91c  1d   Repo scan · 4 findings                                            │
+  │        main   Plan    DeepSeek V4  clean                                         │
+  │     c0e2  3d   feat/payments worktree                                            │
+  │        wt     Agent   DeepSeek V3  dirty 3 files                                 │
+  ╰──────────────────────────────────────────────────────────────────────────────────╯
+  enter resume   ctrl+f fork   d delete   / find
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [9/14] modal — Модал с табами  (K4.7)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Один модал на все расширения (K4.7)
+
+  ┌ Kibborg ─ [Skills] MCP Hooks Plugins Permissions ──────────────────────────┐
+  │   ✓ security-review        model-invocable   v3                            │
+  │   ✓ graphify               user-invocable    v5                            │
+  │   · tunerpro-xdf-engineer  manual            v2                            │
+  │                                                                            │
+  │ [enter] открыть  [space] enable/disable  [v] версии                        │
+  │ [b] benchmark    [t] в корзину          [esc] выход                        │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [10/14] status — Статус-строка (3 плотности, bar от %)  (K1.3)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Статус-строка · состав по ширине
+
+  rich      cols ≥ 110 — полный состав, включая стоимость
+  DeepSeek V4 Flash · ctx 47% ▓▓▓▓▓░░░░░ · $0.04 · 4.2s · main* · Agent
+
+  wide      96 ≤ cols < 110 — без стоимости
+  DeepSeek V4 Flash · ctx 47% ▓▓▓▓▓░░░░░ · 4.2s · main* · Agent
+
+  compact   80 ≤ cols < 88 — без git, turn остаётся
+  DeepSeek V4 Flash · ctx 47% ▓▓▓▓▓░░░░░ · 4.2s · Agent
+
+  narrow    72 ≤ cols < 80 — только ctx, полоса и режим
+  DeepSeek V4 Flash · ctx 47% ▓▓▓▓▓░░░░░ · Agent
+
+  minimal   cols < 72 — полоса тоже выброшена
+  DeepSeek V4 Flash · ctx 47% · Agent
+
+  ctx 18%  ▓▓░░░░░░░░   ctx 47%  ▓▓▓▓▓░░░░░   ctx 86%  ▓▓▓▓▓▓▓▓▓░
+
+  Footer завершённого хода (K2.6):
+  ✓  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [11/14] fullscreen — Fullscreen: панели (display-width)  (K7.1/K7.2)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Fullscreen (K7, --fullscreen) · панели, alt-screen, ресайз
+
+  ┌────────────────────┬──────────────────────────────────────────────┬────────────────────┐
+  │ Sessions          │ Conversation                                │ Context            │
+  │ ▸ 8f31 Auth       │ You: проанализируй проект                   │ system 6%          │
+  │   a91c Scan       │ ✳ Scanning… 4.2s  12.4k tok                 │ tools 9%           │
+  │   c0e2 Pay        │   ✓ read README.md                          │ chat 3%            │
+  │                   │   ⚙ search src/** auth                      │ ────────           │
+  │                   │       ⎿ 3 matches in jwt.ts                 │ 18%                │
+  ├────────────────────┴──────────────────────────────────────────────┴────────────────────┤
+  │ Tasks │ Jobs │ Goals │ Files │ Diff │ Queue                         ctrl+o детали    │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+  DeepSeek V4 Flash · ctx 18% ▓▓░░░░░░░░ · 4.2s · main* · Agent
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [12/14] headless — Headless / CI  (K5)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Вне TUI · headless/CI (K5)
+
+  $ kibborg -p "describe the repo" --output-format json
+  {"type":"result","subtype":"success","duration_ms":18420,"num_turns":6,
+   "result":"Репозиторий — плагинный агентный харнесс...","session_id":"8f31...",
+   "total_cost_usd":0.07,"is_error":false}
+
+  $ kibborg -p "..." --fail-on-question
+  $ echo $?   3   # нужен интерактивный ответ, промптов нет
+
+  Exit-коды:
+    0    успех
+    1    сбой задачи/инструмента
+    2    конфигурация, окружение или ключ
+    3    требуется интерактивное решение
+    130  прервано пользователем (SIGINT)
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [13/14] slashmap — Карта slash-команд и клавиш  (K4.1)
+  ────────────────────────────────────────────────────────────────────────────────
+  ◆ KIBBORG  v1.0.0    ~/Projects/my-app    main*    DeepSeek V4 Flash
+  ────────────────────────────────────────────────────────────────────────────────
+  Карта slash-команд v1 (UI.md §6)
+
+  SESSION   /new /resume /sessions /fork /rename /home /quit
+  CONTEXT   /compact /context /rewind /export /copy /find /transcript
+  MODE      /plan /ask /agent /yolo /always-approve /permissions
+  MODEL     /model /effort /status
+  PROJECT   /init /memory /diff /review /add-dir /worktree
+  SYS       /doctor /usage /theme /config /help /tasks /goal
+  EXT       /mcp /skills /hooks /plugins
+  GIT       /commit (skill), /worktree
+
+  Клавиши:
+    Shift+Tab цикл режимов   Esc снять overlay   Ctrl+C очистить ввод / прервать
+    / @ # автодополнение команд, файлов, сессий   Ctrl+R история
+    Ctrl+X лидер-клавиша (fullscreen)   Ctrl+O детали узла   Ctrl+Q выход
+
+  ────────────────────────────────────────────────────────────────────────────────
+  [14/14] live — LIVE: welcome → session, ввод, /, Shift+Tab, Esc  (K1.4/K3.1/K3.3)
+  ────────────────────────────────────────────────────────────────────────────────
+
+  [live] сценарный прогон зоны (ввод недоступен — не TTY)
+
+  ◆ 8f31  Auth guard · ~/Projects/my-app                               Agent · write
+
+  You   · demo replay: текст не уходит в LLM
+  проанализируй auth и покажи проблемы
+    ✳  Scanning…  1.2s   4.1k tok
+    ✓  read     src/auth/jwt.ts
+       ⎿  1 file · 214 lines
+    ⚙  search   verifyRefresh
+       ⎿  3 matches in src/auth/jwt.ts
+
+  Planning
+    1. Inspect project   ✓
+    2. Read manifests   ✓
+    3. Scan auth flow  ←
+
+  /mo█
+  │    MODEL
+  │ ▸ /model      switch model                ctrl+m
+
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  |   > запусти тесты_                                                               |
+  |                                                                                  |
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  DeepSeek V4 Flash · ctx 24% ▓▓░░░░░░░░ · 6.8s · main* · YOLO
+
+  Длинный ввод не переносится: видна хвостовая часть, курсор остаётся в строке
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  |   > …зируй все модули src/auth, собери проблемы и напиши отчёт с примерами кода_ |
+  |                                                                                  |
+  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+  Контракт зоны: Esc = overlay → plan-review → ход → ввод (выхода нет); выход = Ctrl+Q/Ctrl+D; Ctrl+C = ввод → ход → выход; Shift+Tab = режимы; / = палитра; Enter = ввод либо пункт
+  Геометрия: 88 cols · inner 84 · offset курсора считается из префикса composer.
+

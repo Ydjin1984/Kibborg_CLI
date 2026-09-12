@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# kibborg — launcher shim for POSIX shells (Linux, macOS, WSL). Prefers the
+# built application and falls back to the source entry through tsx.
+set -e
+
+self_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo=$(CDPATH= cd -- "$self_dir/../.." && pwd)
+app="$repo/Kibborg_CLI/apps/cli"
+
+if [ -f "$app/lib/bin.js" ]; then
+  exec node "$app/lib/bin.js" "$@"
+fi
+exec pnpm --dir "$repo" exec tsx "$app/src/bin.ts" "$@"

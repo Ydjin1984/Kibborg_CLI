@@ -1,0 +1,26 @@
+# Dependencies and build output
+node_modules/
+lib/
+dist/
+*.tsbuildinfo
+
+# Local runtime state
+.dsh/
+*.local
+.env
+.env.*
+
+# Test and diagnostic artifacts
+tests/*.raw.txt
+tests/*.transcript.txt
+tests/frame.txt
+tests/frame.html
+tests/frame.raw.txt
+coverage/
+*.log
+
+# Editor and OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,58 @@
+# Пример шага CI: Kibborg CLI отвечает структурированным JSON, workflow решает по нему.
+#
+# Требования к раннеру: Node ^22.19 || >=24, pnpm, собранное ядро (`pnpm run build`) и
+# ключ провайдера в окружении (например `DEEPSEEK_API_KEY` через secrets).
+name: kibborg-review
+
+on:
+  pull_request:
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+      - name: Диагностика окружения
+        # `doctor` печатает отчёт и возвращает 0 только когда проверки прошли.
+        run: pnpm --dir Kibborg_CLI exec node apps/cli/lib/bin.js doctor --json
+
+      - name: Ревью диффа
+        id: review
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          cat > /tmp/schema.json <<'JSON'
+          { "type": "object", "required": ["verdict", "summary"] }
+          JSON
+          pnpm --dir Kibborg_CLI exec node apps/cli/lib/bin.js \
+            -p "Проверь изменения в этом коммите и верни JSON: verdict (approve|revise) и summary" \
+            --output-format json \
+            --json-schema /tmp/schema.json \
+            --max-turns 4 \
+            > /tmp/review.json
+          # stdout — только JSON; человеческий рендер ушёл в stderr.
+          cat /tmp/review.json
+
+      - name: Решение по вердикту
+        # Ненулевой exit-код (1) приходит и от ошибки прогона, и от несоответствия
+        # схеме, поэтому вердикт читается из самого документа.
+        run: |
+          verdict=$(jq -r '.result | fromjson | .verdict' /tmp/review.json)
+          echo "вердикт: $verdict"
+          test "$verdict" = "approve"
+
+      - name: Артефакт с транскриптом
+        if: always()
+        run: |
+          # `--no-session-persistence` скрыл бы сессию из списков; для артефакта
+          # нужен ZIP лога, который она оставляет на диске.
+          pnpm --dir Kibborg_CLI exec node apps/cli/lib/bin.js export --with-descendants || true

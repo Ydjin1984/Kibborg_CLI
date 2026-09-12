@@ -1,0 +1,13 @@
+{
+  "name": "@kibborg/workspace",
+  "description": "The Kibborg CLI workspace: scripts for its own build, tests, and lint",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b packages/tui/tsconfig.json packages/client-node/tsconfig.json packages/server/tsconfig.json packages/cli-bundle/tsconfig.json apps/cli/tsconfig.json && tsdown --config tsdown.config.ts",
+    "test": "vitest run --config vitest.config.ts",
+    "lint": "oxlint ."
+  },
+  "license": "MIT"
+}

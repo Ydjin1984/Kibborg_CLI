@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: Build, test and lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@v4
+        with:
+          repository: Ydjin1984/DeepSeek_Kibborg_Harness
+          path: harness
+          ref: master
+
+      - name: Place Kibborg CLI inside the workspace
+        shell: bash
+        run: |
+          mkdir -p harness/Kibborg_CLI
+          cp -R "$GITHUB_WORKSPACE"/. harness/Kibborg_CLI/ 2>/dev/null || true
+          rm -rf harness/Kibborg_CLI/harness harness/Kibborg_CLI/.git
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: harness/pnpm-lock.yaml
+
+      - name: Install workspace
+        working-directory: harness
+        run: pnpm install --frozen-lockfile
+
+      - name: Build harness
+        working-directory: harness
+        run: pnpm run build
+
+      - name: Build Kibborg CLI
+        working-directory: harness/Kibborg_CLI
+        run: pnpm run build
+
+      - name: Lint
+        working-directory: harness/Kibborg_CLI
+        run: pnpm run lint
+
+      - name: Unit tests
+        working-directory: harness/Kibborg_CLI
+        run: pnpm run test
+
+      - name: CLI smoke (version, help, doctor)
+        working-directory: harness
+        run: |
+          node Kibborg_CLI/apps/cli/lib/bin.js version
+          node Kibborg_CLI/apps/cli/lib/bin.js --help > /dev/null
+          node Kibborg_CLI/apps/cli/lib/bin.js doctor || true

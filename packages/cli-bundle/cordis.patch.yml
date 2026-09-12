@@ -1,0 +1,73 @@
+# The kibborg CLI bundle patch: the terminal surface over the dsh-base layer.
+#
+# Applied after dsh-base's insert; rows here override base rows by id, with the
+# profile's own cordis.patch.yml and any --patch overlays still to come.
+#
+# The transport rows were proved by the K0.0 spike; the storage-backed workspace
+# registry arrived with the session commands. Content search stays as the base
+# layer leaves it (deferred), because enabling it aborts this profile's boot.
+# The startup provider (argument families) and the server rows land later.
+
+- insert:
+    # The workspace registry the API proxy injects, and the storage domain it
+    # persists through. The Web surface composes the same trio; the terminal
+    # surface keeps the JSON backend so no database server is involved.
+    - id: storage
+      name: '@deepseek-ai/dsh-storage'
+
+    - id: storage-json
+      name: '@deepseek-ai/dsh-storage-json'
+      config:
+        root: !!js dshHomePath('storages')
+
+    - id: storage-domain
+      name: '@deepseek-ai/dsh-storage-domain'
+      config:
+        backend: json
+
+    - id: workspace
+      name: '@deepseek-ai/dsh-workspace'
+
+    # The picker backend the API proxy injects. `-auto` selects between native
+    # and browse from the bind host, which requires a webserver; a terminal
+    # process has no bind, so the browse backend is composed directly.
+    - id: directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+
+    # The shared API gateway: the transport-agnostic dispatch face every client
+    # shape uses. Its `ctx.apiProxy` service is what the in-process carrier
+    # wraps with toFetchHandler, so no route, port, or webserver is involved.
+    - id: api-proxy
+      name: '@deepseek-ai/dsh-host-apiproxy'
+
+    # The terminal surface's transport half: builds InProcessApiClient over
+    # ctx.apiProxy and runs this invocation's task until its turn ends.
+    - id: kibborg-client
+      name: '@kibborg/client-node'
+
+    # This bundle's own node half. A bundle is a patch layer, so its module is
+    # normally never mounted; this row mounts it for the one service it does
+    # own — the `kibborg-cli` settings section (theme, timestamps, multiline),
+    # which the Settings pages list from the host registry.
+    - id: kibborg-cli
+      name: '@kibborg/cli-bundle'
+
+    # Orchestrator mode: splits the session's chat model (head, plans and
+    # reviews) from a local executor model that does the tool-driven work. The
+    # Web surface mounts the same row; its `orchestrator` settings namespace
+    # decides whether the mode is on and which route the executor uses, so this
+    # row is what makes that setting reachable from the terminal too.
+    - id: orchestrator
+      name: '@deepseek-ai/dsh-orchestrator'
+
+    # The plugin inventory: the Loader's own entry list, which the tabs modal's
+    # Plugins tab reads. Host-plane and read-only from this surface.
+    - id: plugin-inventory
+      name: '@deepseek-ai/dsh-host-plugin-inventory'
+
+    # The skill manager: the lifecycle behind `kibborg skills show|save|remove|
+    # enable|versions|rollback|benchmark`. The base layer ships the skill
+    # REGISTRY and the loader tool, but the manager is a separate row in the Web
+    # surface as well, so the terminal composes it for the same reason.
+    - id: skill-manager
+      name: '@deepseek-ai/dsh-skill-manager'

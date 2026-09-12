@@ -1,0 +1,29 @@
+{
+  "name": "@kibborg/cli",
+  "description": "kibborg CLI: the terminal surface of DeepSeek_Kibborg_Harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "kibborg": "lib/bin.js"
+  },
+  "files": [
+    "lib/*.js"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-base": "workspace:^",
+    "@deepseek-ai/dsh-cmdline": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-launch-environment": "workspace:^",
+    "@kibborg/cli-bundle": "workspace:^",
+    "@kibborg/server": "workspace:^",
+    "commander": "^15.0.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@kibborg/client-node": "workspace:^"
+  }
+}
