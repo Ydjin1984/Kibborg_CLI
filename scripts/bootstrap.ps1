@@ -82,6 +82,27 @@ if ((Test-Path $cli) -and -not $Force) {
   Remove-Item -Recurse -Force $cli
 }
 
+# The CLI's packages depend on the harness packages through `workspace:^`, so the
+# CLI has to be a workspace member; the upstream harness does not know about it.
+$workspaceFile = Join-Path $Target 'pnpm-workspace.yaml'
+if (Test-Path $workspaceFile) {
+  $workspace = [System.IO.File]::ReadAllText($workspaceFile)
+  if ($workspace -notmatch 'Kibborg_CLI/packages') {
+    $lines = @(
+      '  # Kibborg CLI: the terminal surface (own app bin, own bundle).',
+      '  - Kibborg_CLI/apps/*',
+      '  - Kibborg_CLI/packages/*'
+    )
+    $workspace = [regex]::Replace($workspace, '(?m)^(\s*-\s*packages/\*/\*)\s*$', "`$1`n$($lines -join "`n")", 1)
+    [System.IO.File]::WriteAllText($workspaceFile, $workspace, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host 'Kibborg CLI добавлен в pnpm-workspace.yaml harness.' -ForegroundColor Green
+  } else {
+    Write-Host 'Kibborg CLI уже входит в рабочие пространства harness.' -ForegroundColor Cyan
+  }
+} else {
+  Write-Warning "Не найден $workspaceFile: сборка Kibborg CLI может не найти зависимости harness."
+}
+
 Write-Host 'Копирую Kibborg CLI в раскладку…' -ForegroundColor Yellow
 New-Item -ItemType Directory -Path $cli -Force | Out-Null
 $excludes = @('node_modules', 'lib', '.git', '.dsh', 'coverage')

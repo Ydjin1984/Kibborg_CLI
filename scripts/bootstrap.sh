@@ -72,6 +72,29 @@ if [ -d "$CLI" ] && [ "$FORCE" = true ]; then
   rm -rf "$CLI"
 fi
 
+# Пакеты CLI зависят от пакетов harness через `workspace:^`, поэтому CLI должен быть
+# членом рабочего пространства; апстрим об этом не знает.
+WORKSPACE_FILE="${TARGET}/pnpm-workspace.yaml"
+if [ -f "$WORKSPACE_FILE" ]; then
+  if grep -q 'Kibborg_CLI/packages' "$WORKSPACE_FILE"; then
+    echo "Kibborg CLI уже входит в рабочие пространства harness."
+  else
+    awk '
+      { print }
+      /^[[:space:]]*-[[:space:]]*packages\/\*\/\*/ && !done {
+        print "  # Kibborg CLI: the terminal surface (own app bin, own bundle)."
+        print "  - Kibborg_CLI/apps/*"
+        print "  - Kibborg_CLI/packages/*"
+        done = 1
+      }
+    ' "$WORKSPACE_FILE" > "${WORKSPACE_FILE}.tmp"
+    mv "${WORKSPACE_FILE}.tmp" "$WORKSPACE_FILE"
+    echo "Kibborg CLI добавлен в pnpm-workspace.yaml harness."
+  fi
+else
+  echo "Предупреждение: не найден ${WORKSPACE_FILE}: сборка может не найти зависимости harness." >&2
+fi
+
 echo "Копирую Kibborg CLI в раскладку…"
 mkdir -p "$CLI"
 ( cd "$SOURCE" && tar --exclude=node_modules --exclude=lib --exclude=.git --exclude=.dsh --exclude=coverage -cf - . ) | ( cd "$CLI" && tar -xf - )
