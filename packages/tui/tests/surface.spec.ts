@@ -116,15 +116,18 @@ describe('transcript rendering', () => {
     expect(tokens).toContain('✗')
   })
 
-  it('colors the shell tool differently and keeps every detail line', () => {
+  it('colors the shell tool differently and keeps every detail line once expanded', () => {
     const log = createLog()
     const detail = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-    log.append({ kind: 'tool', text: 'ls', name: 'bash', status: 'running', detail })
-    const lines = renderEntries(log.entries, 100, { runningGlyph: '✳' })
-    const bashSpan = lines.flatMap(line => line.spans).find(span => span.text === 'bash')
+    const id = log.append({ kind: 'tool', text: 'ls', name: 'bash', status: 'running', detail })
+    const condensed = renderEntries(log.entries, 100, { runningGlyph: '✳' })
+    const bashSpan = condensed.flatMap(line => line.spans).find(span => span.text === 'bash')
     expect(bashSpan?.token).toBe('BashPink')
-    // Detail lines are shown whole: a tool's rows are the evidence a user reads,
-    // so nothing is elided until the block bound is reached.
+    // A long block shows its head plus the row that expands it.
+    expect(condensed.some(line => plainText(line).includes('ещё'))).toBe(true)
+    expect(condensed.some(line => plainText(line).includes('⎿  h'))).toBe(false)
+    log.patch(id, { expanded: true })
+    const lines = renderEntries(log.entries, 100, { runningGlyph: '✳' })
     const shown = lines.map(line => plainText(line))
     for (const row of detail) expect(shown.some(text => text.includes(`⎿  ${row}`))).toBe(true)
     expect(shown.some(text => text.includes('ещё'))).toBe(false)
@@ -134,7 +137,7 @@ describe('transcript rendering', () => {
     const log = createLog()
     const input = '{\n  "file_path": "a.txt",\n  "old_string": "x"\n}'
     const output = 'The file a.txt has been updated'
-    log.append({
+    const id = log.append({
       kind: 'tool',
       text: 'a.txt',
       name: 'edit',
@@ -145,7 +148,11 @@ describe('transcript rendering', () => {
       added: 1,
       removed: 1,
       durationMs: 135,
+      // The entry is longer than the collapse bound, so the block is read after
+      // expanding it — which is what the header row offers a click for.
+      expanded: true,
     })
+    expect(renderEntries(log.entries, 100, {}).some(line => line.entryId === id)).toBe(true)
     const lines = renderEntries(log.entries, 100, { runningGlyph: '✳' })
     const text = lines.map(line => plainText(line)).join('\n')
     expect(text).toContain('+1 −1')

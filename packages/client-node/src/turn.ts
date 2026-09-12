@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import { createTurnRenderer, type Palette, type ToolResultDetail, type TurnRenderer } from '@kibborg/tui'
+import { prettyArguments } from './arguments.ts'
 import {
   answerApproval,
   answerQuestions,
@@ -237,17 +238,6 @@ function summarizeArguments(raw: string): string | undefined {
     return trimmed.slice(0, 80)
   }
   return trimmed.slice(0, 80)
-}
-
-/** Pretty-print an argument JSON string, keeping the original when it is not JSON. */
-function prettyArguments(raw: string): string | undefined {
-  const trimmed = raw.trim()
-  if (trimmed === '') return undefined
-  try {
-    return JSON.stringify(JSON.parse(trimmed), undefined, 2)
-  } catch {
-    return trimmed
-  }
 }
 
 /** The model-facing text of a tool result: every text block it carries, joined. */

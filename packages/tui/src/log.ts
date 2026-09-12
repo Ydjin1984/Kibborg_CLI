@@ -175,7 +175,7 @@ const BLOCK_LINE_LIMIT = 200
  * swamp the transcript, so only the head is shown with a row that says how much
  * is hidden and expands the entry on a click.
  */
-const COLLAPSED_LINES = 20
+const COLLAPSED_LINES = 5
 
 /**
  * Create an empty transcript.
@@ -349,9 +349,10 @@ function toolMark(
  * @returns the lines to show, either condensed or whole.
  */
 function condense(lines: readonly StyledLine[], entry: LogEntry, width: number): StyledLine[] {
-  if (entry.expanded === true || lines.length <= COLLAPSED_LINES) return [...lines]
-  const kept = lines.slice(0, COLLAPSED_LINES)
-  const hidden = lines.length - COLLAPSED_LINES
+  const tagged = lines.map(line => fitLine({ ...line, entryId: entry.id }, width))
+  if (entry.expanded === true || tagged.length <= COLLAPSED_LINES) return tagged
+  const kept = tagged.slice(0, COLLAPSED_LINES)
+  const hidden = tagged.length - COLLAPSED_LINES
   const marker: StyledLine = {
     spans: [
       { text: INDENT, token: 'Muted' },
