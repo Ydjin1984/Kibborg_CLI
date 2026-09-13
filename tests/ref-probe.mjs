@@ -24,8 +24,12 @@ const ms = Number(flag('--ms', '8000'))
 const keysAfter = Number(flag('--keys-after', '0'))
 const keys = flag('--keys', '')
 const out = flag('--out', join(here, 'ref-probe.txt'))
+const VALUE_FLAGS = ['--cols', '--rows', '--ms', '--out', '--keys', '--keys-after']
 const program = argv[0]
-const args = argv.slice(1).filter((value, index, all) => !['--cols', '--rows', '--ms', '--out'].includes(all[index - 1] ?? '') && !value.startsWith('--'))
+const args = argv.slice(1).filter((value, index, all) => {
+  if (VALUE_FLAGS.includes(value)) return false
+  return !VALUE_FLAGS.includes(all[index - 1] ?? '')
+})
 
 const store = join(root, 'node_modules', '.pnpm')
 const ptyEntry = readdirSync(store).find(name => name.startsWith('node-pty@'))

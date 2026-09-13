@@ -304,8 +304,8 @@ export interface QuestionInput {
   /** Total questions in the batch. */
   readonly total: number
   /** Answer options. */
-  readonly options: readonly string[]
-  /** Highlighted option. */
+  readonly options: readonly QuestionOptionInput[]
+  /** Highlighted option, or the free-text row when it equals `options.length`. */
   readonly selected: number
   /** Whether several options may be chosen. */
   readonly multi?: boolean
@@ -313,32 +313,58 @@ export interface QuestionInput {
   readonly chosen?: readonly number[]
 }
 
+/** One answer a question offers, as the box draws it. */
+export interface QuestionOptionInput {
+  /** Short name of the answer. */
+  readonly label: string
+  /** Explanation shown beside the name. */
+  readonly description?: string
+}
+
 /**
  * Build the question box.
+ *
+ * The shape follows the question card of the reference CLIs: a numbered row per
+ * answer with its explanation, a row of its own for a typed answer, and the keys
+ * that work written under them. The number is what the user reads, so a batch of
+ * questions is answered without moving the hands off the top row of the keyboard.
  * @param input - the question to describe.
  * @returns the rows; the frame is `PermLav` because a question waits on a decision.
  */
 export function questionDialog(input: QuestionInput): DialogView {
   const lines: StyledLine[] = [row(input.question, 'Text')]
+  lines.push({ spans: [] })
+  const width = input.options.reduce(
+    (max, option) => Math.max(max, displayWidth(option.label)),
+    0,
+  )
   for (const [index, option] of input.options.entries()) {
     const active = index === input.selected
     const chosen = input.chosen?.includes(index) === true
-    const marker = input.multi === true ? (chosen ? '[x] ' : '[ ] ') : active ? '▸ ' : '  '
+    const mark = input.multi === true ? (chosen ? '◉' : '○') : active ? '●' : '○'
     lines.push(runs([
-      { text: marker, token: active ? 'Accent' : 'Muted' },
-      { text: option, token: active ? 'Text' : 'Text', ...(active ? {} : { dim: true }) },
+      { text: `${String(index + 1)} `, token: active ? 'Accent' : 'Muted' },
+      { text: `(${mark}) `, token: chosen || active ? 'Accent' : 'Subtle' },
+      { text: option.label, token: 'Text', ...(active ? { bold: true } : {}) },
+      { text: ' '.repeat(Math.max(1, width - displayWidth(option.label) + 3)), token: 'Muted' },
+      { text: option.description ?? '', token: 'Muted', dim: true },
     ]))
   }
-  lines.push({ spans: [] })
-  lines.push(runs([{ text: 'other… > ', token: 'Muted' }, { text: '_', token: 'Accent' }]))
+  const typing = input.selected === input.options.length
+  lines.push(runs([
+    { text: 'z ', token: typing ? 'Accent' : 'Muted' },
+    { text: typing ? '(◉) ' : '(○) ', token: typing ? 'Accent' : 'Subtle' },
+    { text: 'Свой ответ', token: 'Text', ...(typing ? { bold: true } : {}) },
+    { text: '   наберите текст и нажмите Enter', token: 'Muted', dim: true },
+  ]))
   lines.push({ spans: [] })
   lines.push(row(
     input.multi === true
-      ? '[↑↓] выбрать   [space] отметить   [enter] подтвердить'
-      : '[↑↓] выбрать   [enter] подтвердить   [esc] отменить',
+      ? '[↑↓] выбор   [space] отметить   [enter] подтвердить   [esc] отменить'
+      : '[↑↓] выбор   [1-9] выбрать сразу   [z] свой ответ   [enter] подтвердить   [esc] отменить',
     'Muted',
   ))
-  return { token: 'PermLav', label: `Question  ${String(input.index)}/${String(input.total)}`, lines }
+  return { token: 'PermLav', label: `Вопрос ${String(input.index)}/${String(input.total)}`, lines }
 }
 
 /**

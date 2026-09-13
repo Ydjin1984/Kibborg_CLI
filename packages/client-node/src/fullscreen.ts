@@ -53,6 +53,7 @@ import { runTurn } from './turn.ts'
 import { createEscapeIdle } from './escape-idle.ts'
 import { splitCommand, type SurfaceState } from './command-router.ts'
 import {
+  parseAnswerLine,
   type ApprovalDecision,
   type PendingApproval,
   type PendingQuestion,
@@ -291,22 +292,42 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       render()
     })
 
-  /** Submit the highlighted answer of the question on screen. */
-  const acceptCurrentQuestion = (): void => {
+  /**
+   * Answer the question on screen with a choice or with typed text.
+   *
+   * The card offers a row for a typed answer, so text in the composer is that
+   * answer; numbers and the highlighted row keep picking the listed answers.
+   * @param text - the composer text, when the user typed one.
+   * @param index - the option to answer with, when a row was picked.
+   */
+  const answerQuestion = (text: string, index?: number): void => {
     const active = question
     if (active === undefined) return
     const current = active.pending.questions[active.index]
     if (current === undefined) return
     const options = current.options ?? []
-    const selected = current.multiSelect === true && active.chosen.length > 0
-      ? active.chosen.map(index => options[index]?.label ?? '').filter(label => label !== '')
-      : options[active.selected] === undefined ? [] : [options[active.selected]?.label as string]
-    if (selected.length === 0) {
-      hint = 'выберите вариант стрелками или введите свой ответ'
-      render()
-      return
+    const typed = text.trim()
+    let resolved: QuestionAnswer | undefined
+    if (typed !== '') {
+      const numbered = parseAnswerLine(typed, options.map(option => option.label), current.multiSelect === true)
+      resolved = numbered === undefined
+        ? { id: current.id, selected: [], custom: typed }
+        : { id: current.id, ...numbered }
+    } else {
+      const picked = index ?? active.selected
+      const multi = current.multiSelect === true
+      const chosen = multi && active.chosen.length > 0 ? active.chosen : [picked]
+      const labels = chosen.map(at => options[at]?.label ?? '').filter(label => label !== '')
+      if (labels.length === 0) {
+        // The free-text row was picked with nothing typed yet: keep the question
+        // open and say what to do instead of answering with nothing.
+        hint = 'наберите свой ответ и нажмите Enter'
+        render()
+        return
+      }
+      resolved = { id: current.id, selected: labels }
     }
-    active.collected.push({ id: current.id, selected })
+    active.collected.push(resolved)
     active.index += 1
     active.selected = 0
     active.chosen = []
@@ -353,7 +374,10 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
             question: current.question,
             index: question.index + 1,
             total: question.pending.questions.length,
-            options: (current.options ?? []).map(option => option.label),
+            options: (current.options ?? []).map(option => ({
+              label: option.label,
+              ...(option.description === undefined ? {} : { description: option.description }),
+            })),
             selected: question.selected,
             ...(current.multiSelect === true ? { multi: true } : {}),
             ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
@@ -560,22 +584,44 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     }
     if (question !== undefined) {
       const active = question
-      const options = active.pending.questions[active.index]?.options ?? []
-      const multi = active.pending.questions[active.index]?.multiSelect === true
+      const current = active.pending.questions[active.index]
+      const options = current?.options ?? []
+      const multi = current?.multiSelect === true
+      // The card adds one row of its own after the answers: the typed answer.
+      const rows = options.length + 1
       switch (key.kind) {
         case 'up':
         case 'down': {
-          if (options.length === 0) return
           const step = key.kind === 'up' ? -1 : 1
-          active.selected = (active.selected + step + options.length) % options.length
+          active.selected = (active.selected + step + rows) % rows
+          hint = ''
+          render()
+          return
+        }
+        case 'tab':
+        case 'shift-tab': {
+          const step = key.kind === 'tab' ? 1 : -1
+          active.selected = (active.selected + step + rows) % rows
+          hint = ''
           render()
           return
         }
         case 'enter':
-          acceptCurrentQuestion()
+          answerQuestion(draft, draft.trim() === '' ? active.selected : undefined)
           return
         case 'char':
-          if (key.text === ' ' && multi) {
+          if (Number.isInteger(Number.parseInt(key.text, 10)) && !multi
+            && Number.parseInt(key.text, 10) >= 1 && Number.parseInt(key.text, 10) <= options.length) {
+            answerQuestion('', Number.parseInt(key.text, 10) - 1)
+            return
+          }
+          if (key.text === 'z' || key.text === 'Z') {
+            active.selected = options.length
+            hint = 'наберите свой ответ и нажмите Enter'
+            render()
+            return
+          }
+          if (key.text === ' ' && multi && active.selected < options.length) {
             const at = active.chosen.indexOf(active.selected)
             if (at === -1) active.chosen.push(active.selected)
             else active.chosen.splice(at, 1)

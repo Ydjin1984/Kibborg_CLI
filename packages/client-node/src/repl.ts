@@ -185,7 +185,10 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           question: current.question,
           index: question.index + 1,
           total: pending.questions.length,
-          options: (current.options ?? []).map(option => option.label),
+          options: (current.options ?? []).map(option => ({
+            label: option.label,
+            ...(option.description === undefined ? {} : { description: option.description }),
+          })),
           selected: question.selected,
           ...(current.multiSelect === true ? { multi: true } : {}),
           ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
@@ -275,7 +278,10 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         question: current.question,
         index: question.index + 1,
         total: question.pending.questions.length,
-        options: (current.options ?? []).map(option => option.label),
+        options: (current.options ?? []).map(option => ({
+          label: option.label,
+          ...(option.description === undefined ? {} : { description: option.description }),
+        })),
         selected: question.selected,
         ...(current.multiSelect === true ? { multi: true } : {}),
         ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
@@ -315,61 +321,50 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       drawZone()
     })
 
-  /** Submit the currently highlighted answer of an open question. */
-  const acceptCurrentQuestion = (): void => {
+  /**
+   * Answer the open question with a choice or with typed text.
+   *
+   * A typed answer is sent as free text without needing a prefix: the card says
+   * "наберите текст", so typing and pressing Enter has to mean that. Numbers and a
+   * bare selection keep picking the listed answers.
+   * @param text - the text in the composer, when the user typed one.
+   * @param index - the option to answer with, when a row was picked.
+   */
+  const answerQuestion = (text: string, index?: number): void => {
     const active = question
     if (active === undefined) return
     const current = active.pending.questions[active.index]
     if (current === undefined) return
     const options = current.options ?? []
-    const selected = current.multiSelect === true && active.chosen.length > 0
-      ? active.chosen.map(index => options[index]?.label ?? '').filter(label => label !== '')
-      : options[active.selected] === undefined ? [] : [options[active.selected]?.label as string]
-    if (selected.length === 0) {
-      note('  (выберите вариант стрелками или введите свой ответ)\n')
-      drawZone()
-      return
-    }
-    const answer: QuestionAnswer = {
-      id: current.id,
-      selected,
+    const typed = text.trim()
+    let answer: QuestionAnswer | undefined
+    if (typed !== '') {
+      const numbered = parseAnswerLine(typed, options.map(option => option.label), current.multiSelect === true)
+      answer = numbered === undefined
+        ? { id: current.id, selected: [], custom: typed }
+        : { id: current.id, ...numbered }
+    } else {
+      const picked = index ?? active.selected
+      const multi = current.multiSelect === true
+      const chosen = multi && active.chosen.length > 0 ? active.chosen : [picked]
+      const labels = chosen
+        .map(at => options[at]?.label ?? '')
+        .filter(label => label !== '')
+      if (labels.length === 0) {
+        // The free-text row was picked with nothing typed yet: keep the question
+        // open and say what to do, instead of answering with nothing.
+        hint = 'наберите свой ответ и нажмите Enter'
+        drawZone()
+        return
+      }
+      answer = { id: current.id, selected: labels }
     }
     active.collected.push(answer)
     active.index += 1
     active.selected = 0
     active.chosen = []
     draft = ''
-    if (active.index >= active.pending.questions.length) {
-      question = undefined
-      overlay = []
-      active.resolve(active.collected)
-    } else {
-      overlay = pendingOverlay()
-    }
-    drawZone()
-  }
-
-  /** Resolve the active question with the line the user typed. */
-  const answerCurrentQuestion = (text: string): void => {
-    const active = question
-    if (active === undefined) return
-    const current = active.pending.questions[active.index]
-    if (current === undefined) return
-    const trimmed = text.trim()
-    const parsed = parseAnswerLine(trimmed, (current.options ?? []).map(option => option.label), current.multiSelect === true)
-    if (parsed === undefined) {
-      note('  (that was not an option number; try again)\n')
-      drawZone()
-      return
-    }
-    const answer: QuestionAnswer = {
-      id: current.id,
-      selected: parsed.selected,
-      ...(parsed.custom === undefined ? {} : { custom: parsed.custom }),
-    }
-    active.collected.push(answer)
-    draft = ''
-    active.index += 1
+    hint = ''
     if (active.index >= active.pending.questions.length) {
       question = undefined
       overlay = []
@@ -1045,25 +1040,52 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       }
       if (question !== undefined) {
         const active = question
-        const options = active.pending.questions[active.index]?.options ?? []
-        const multi = active.pending.questions[active.index]?.multiSelect === true
+        const current = active.pending.questions[active.index]
+        const options = current?.options ?? []
+        const multi = current?.multiSelect === true
+        // The card adds one row of its own after the answers: the typed answer.
+        const rows = options.length + 1
         switch (key.kind) {
           case 'up':
           case 'down': {
-            if (options.length === 0) return
             const step = key.kind === 'up' ? -1 : 1
-            active.selected = (active.selected + step + options.length) % options.length
+            active.selected = (active.selected + step + rows) % rows
+            hint = ''
+            drawZone()
+            return
+          }
+          case 'tab':
+          case 'shift-tab': {
+            const step = key.kind === 'tab' ? 1 : -1
+            active.selected = (active.selected + step + rows) % rows
+            hint = ''
             drawZone()
             return
           }
           case 'enter':
             // A line the user typed is their own answer; otherwise the highlighted
-            // option is the answer, which is what the box's key legend promises.
-            if (draft.trim() !== '') answerCurrentQuestion(draft)
-            else acceptCurrentQuestion()
+            // row is the answer, which is what the card's key legend promises.
+            answerQuestion(draft, draft.trim() === '' ? active.selected : undefined)
             return
           case 'char': {
+            const digit = Number.parseInt(key.text, 10)
+            if (!multi && Number.isInteger(digit) && digit >= 1 && digit <= options.length) {
+              answerQuestion('', digit - 1)
+              return
+            }
+            if (key.text === 'z' || key.text === 'Z' || key.text === 'ь' || key.text === 'Ь') {
+              // The free-text row: park the highlight there and take the keystroke
+              // as typing, so the answer starts with the key that was pressed.
+              active.selected = options.length
+              if (key.text === 'z' || key.text === 'Z') {
+                hint = 'наберите свой ответ и нажмите Enter'
+                drawZone()
+                return
+              }
+              break
+            }
             if (key.text !== ' ' || !multi) break
+            if (active.selected >= options.length) break
             const at = active.chosen.indexOf(active.selected)
             if (at === -1) active.chosen.push(active.selected)
             else active.chosen.splice(at, 1)
@@ -1074,6 +1096,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           case 'ctrl-c': {
             question = undefined
             overlay = []
+            hint = ''
             active.resolve(undefined)
             drawZone()
             return
