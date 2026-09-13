@@ -9,7 +9,7 @@
  */
 
 export type { Palette, TokenName, TokenStyle } from './tokens.ts'
-export { fallbackPalette, paletteFor, paletteForTheme, plainPalette, trueColorPalette } from './tokens.ts'
+export { agentToken, fallbackPalette, paletteFor, paletteForTheme, plainPalette, trueColorPalette } from './tokens.ts'
 
 export { displayWidth, padLeft, padRight, takeHeadWidth, takeTailWidth } from './width.ts'
 
@@ -48,19 +48,21 @@ export { detectCaps, createScreen } from './screen.ts'
 export type { MouseAction, MouseEvent } from './mouse.ts'
 export { decodeSgrMouse, decodeX10Mouse, wheelDelta } from './mouse.ts'
 
-export type { LogEntry, LogKind, LogModel, RenderOptions, Span, StyledLine, ToolStatus } from './log.ts'
+export type { AgentBadge, LogEntry, LogKind, LogModel, RenderOptions, Span, StyledLine, ToolStatus, Transcript } from './log.ts'
 export {
   clampScroll,
   createLog,
   lineWidth,
   plainText,
   renderEntries,
+  renderTranscript,
   scrollIndicator,
+  transcriptWindow,
   visibleLines,
   wrapText,
 } from './log.ts'
 
-export type { LogViewResult, LogViewState } from './logview.ts'
+export type { LogSource, LogViewResult, LogViewState } from './logview.ts'
 export { drawLogView, firstVisibleText, paintStyledLine } from './logview.ts'
 
 export type { HeaderState } from './header.ts'

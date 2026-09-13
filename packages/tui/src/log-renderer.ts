@@ -8,7 +8,7 @@
  * @module @kibborg/tui/log-renderer
  */
 
-import type { LogModel } from './log.ts'
+import type { AgentBadge, LogModel } from './log.ts'
 import type { TurnRenderer } from './render.ts'
 import type { FooterInput, StatusInput } from './status.ts'
 
@@ -31,39 +31,105 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
   const { log } = options
   let tools = 0
   let answerId: number | null = null
-  let runningToolId: number | null = null
+  /** Text accumulated for the answer being streamed. */
+  let answerText = ''
+  /**
+   * Entry of each running tool call, keyed by the agent that called it and the
+   * tool's name.
+   *
+   * One slot is not enough once subagents work inside the turn: the head starts a
+   * delegation, a child starts its own call, and a single slot would settle the
+   * wrong row.
+   */
+  const running = new Map<string, number>()
+  /** The agent whose rows are being appended, and the heading that opened it. */
+  let current: { readonly badge: AgentBadge; readonly heading: number } | undefined
+
+  /** Fields every entry carries while an agent owns the turn. */
+  const owner = (): { readonly agent?: AgentBadge } => current === undefined
+    ? {}
+    : { agent: { ...current.badge, state: 'open' } }
+
+  /** Key of one running call: the agent's label, then the tool's name. */
+  const slot = (name: string): string => `${current?.badge.label ?? ''}\u0000${name}`
+
+  /** Take the entry of a finishing call, falling back to any agent's call of that name. */
+  const takeRunning = (name: string): number | undefined => {
+    const own = running.get(slot(name))
+    if (own !== undefined) {
+      running.delete(slot(name))
+      return own
+    }
+    for (const [key, id] of running) {
+      if (key.endsWith(`\u0000${name}`)) {
+        running.delete(key)
+        return id
+      }
+    }
+    return undefined
+  }
 
   return {
     user(text) {
       answerId = null
       log.append({ kind: 'user', text })
     },
+    agent(badge, detail) {
+      const text = detail ?? ''
+      // The session identifies the agent even after its name changes; a caller that
+      // passes no session falls back to the name and depth it drew the heading with.
+      const same = badge.sessionId === undefined
+        ? current !== undefined && current.badge.depth === badge.depth && current.badge.label === badge.label
+        : current?.badge.sessionId === badge.sessionId
+      if (current !== undefined && same) {
+        // The agent is still the same one: its heading carries the newest activity
+        // and the newest name, model, and role, instead of a new heading per call.
+        const heading = current.heading
+        current = { badge, heading }
+        log.patch(heading, { text, agent: { ...badge, state: 'open' } })
+        return
+      }
+      answerId = null
+      const heading = log.append({
+        kind: 'agent',
+        text,
+        agent: { ...badge, state: 'open' },
+      })
+      current = { badge, heading }
+    },
+    agentDone(badge, summary) {
+      // The heading stays where it opened and the close gets its own row, so the
+      // branch reads top-down: what the agent was, what it did, how it ended.
+      current = undefined
+      log.append({ kind: 'agent', text: summary ?? '', agent: { ...badge, state: 'done' } })
+    },
     toolCall(name, argument, call) {
       tools += 1
       answerId = null
-      runningToolId = log.append({
+      const id = log.append({
         kind: 'tool',
         text: argument ?? '',
         name,
         status: 'running',
+        ...owner(),
         ...(call?.input === undefined ? {} : { input: call.input }),
         ...(call?.diff === undefined ? {} : { diff: call.diff }),
         ...(call?.added === undefined ? {} : { added: call.added }),
         ...(call?.removed === undefined ? {} : { removed: call.removed }),
       })
+      running.set(slot(name), id)
     },
     toolFailure(name, reason) {
-      const id = runningToolId
-      if (id === null) {
+      const id = takeRunning(name)
+      if (id === undefined) {
         log.append({ kind: 'error', text: `${name}: ${reason}` })
         return
       }
       log.patch(id, { status: 'fail', meta: reason })
-      runningToolId = null
     },
     toolDone(name, durationMs, result) {
-      const id = runningToolId
-      if (id === null) return
+      const id = takeRunning(name)
+      if (id === undefined) return
       log.patch(id, {
         status: 'ok',
         ...(durationMs === undefined ? {} : { durationMs }),
@@ -73,7 +139,6 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
         ...(result?.added === undefined ? {} : { added: result.added }),
         ...(result?.removed === undefined ? {} : { removed: result.removed }),
       })
-      runningToolId = null
     },
     changedFiles(paths) {
       if (paths.length === 0) return
@@ -87,21 +152,22 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
     text(delta) {
       if (answerId === null) {
         answerId = log.append({ kind: 'assistant', text: delta })
+        answerText = delta
         return
       }
-      const id = answerId
-      const entries = log.entries
-      const current = entries.find(entry => entry.id === id)
-      if (current === undefined) return
-      log.patch(id, { text: current.text + delta })
+      // The running text is kept here instead of read back from the entry: a long
+      // answer streams in hundreds of chunks, and scanning the transcript for its
+      // own entry on each one is what made streaming cost grow with the session.
+      answerText += delta
+      log.patch(answerId, { text: answerText })
     },
     notice(text) {
       answerId = null
-      log.append({ kind: 'notice', text })
+      log.append({ kind: 'notice', text, ...owner() })
     },
     error(text) {
       answerId = null
-      log.append({ kind: 'error', text })
+      log.append({ kind: 'error', text, ...owner() })
     },
     closeAnswer() {
       answerId = null

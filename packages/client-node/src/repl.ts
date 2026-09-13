@@ -696,6 +696,9 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       app.setRunning(true, 'Working…')
     }
     controller = new AbortController()
+    // The transcript names the model behind each line, and this surface already
+    // tracks the session's route for its status line.
+    const route = options.state.model
     const outcome = await runTurn({
       client: options.client,
       sessionId,
@@ -706,6 +709,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       signal: controller.signal,
       onApproval: askApproval,
       onQuestion: askQuestion,
+      ...(route === undefined || route === '' ? {} : { model: route }),
       ...(options.settings.timestamps ? { timestamps: true } : {}),
       ...(app === undefined
         ? {}
@@ -1021,8 +1025,10 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         // while mouse reporting is on, so a released selection lands on the
         // clipboard directly and the surface says how much went there.
         const lines = text.split('\n').length
-        if (copyToClipboard(text)) announce(`скопировано строк: ${String(lines)}`)
-        else emit('  не удалось обратиться к буферу обмена\n')
+        void copyToClipboard(text).then(copied => {
+          if (copied) announce(`скопировано строк: ${String(lines)}`)
+          else emit('  не удалось обратиться к буферу обмена\n')
+        })
       })
       app.onOpen(target => {
         if (openTarget(target)) announce(`открыто: ${target}`)

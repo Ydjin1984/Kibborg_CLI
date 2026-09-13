@@ -8,7 +8,7 @@
  * @module @kibborg/client-node/transcript
  */
 
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { rmSync, writeFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -31,6 +31,9 @@ export const MATCH_LIMIT = 20
 
 /** Characters of context a match snippet keeps. */
 const SNIPPET_WIDTH = 120
+
+/** How long a clipboard helper may run before it is dropped as stuck. */
+const HELPER_TIMEOUT_MS = 5000
 
 /** The text one message event contributes, or empty when it contributes none. */
 function messageText(event: SessionEvent): string {
@@ -162,18 +165,62 @@ export async function writeTranscript(
  * @param text - the text to place on the clipboard.
  * @returns whether a clipboard helper accepted the text.
  */
-export function copyToClipboard(text: string): boolean {
-  if (process.platform === 'win32') return copyOnWindows(text)
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (process.platform === 'win32') return await copyOnWindows(text)
   const candidates: readonly (readonly string[])[] = process.platform === 'darwin'
     ? [['pbcopy']]
     : [['wl-copy'], ['xclip', '-selection', 'clipboard'], ['xsel', '--clipboard', '--input']]
   for (const command of candidates) {
     const [file, ...rest] = command
     if (file === undefined) continue
-    const result = spawnSync(file, rest, { input: text, encoding: 'utf8' })
-    if (!result.error && result.status === 0) return true
+    if (await runHelper(file, rest, text) === 0) return true
   }
   return false
+}
+
+/**
+ * Start a clipboard helper and wait for it to exit.
+ *
+ * The helper runs as a child process so the terminal keeps repainting while the
+ * clipboard is written; a synchronous spawn would freeze the frame on every
+ * copy of a long answer.
+ * @param command - the helper executable.
+ * @param args - its arguments.
+ * @param input - text for the helper's standard input, or `undefined` to close it.
+ * @returns the exit code, or `-1` when the helper could not be started.
+ */
+function runHelper(command: string, args: readonly string[], input?: string): Promise<number> {
+  return new Promise(resolve => {
+    let child: ReturnType<typeof spawn>
+    try {
+      child = spawn(command, [...args], { stdio: ['pipe', 'ignore', 'ignore'] })
+    } catch {
+      resolve(-1)
+      return
+    }
+    // A helper that never exits — a stuck clipboard daemon, a locked display — must
+    // not hold `/copy` or the process open, so the wait is bounded.
+    const timer = setTimeout(() => {
+      child.kill()
+      resolve(-1)
+    }, HELPER_TIMEOUT_MS)
+    timer.unref()
+    child.on('error', () => {
+      clearTimeout(timer)
+      resolve(-1)
+    })
+    child.on('close', code => {
+      clearTimeout(timer)
+      resolve(code ?? -1)
+    })
+    const stdin = child.stdin
+    if (stdin !== null) {
+      // A helper that exits without reading its input closes the pipe first; that
+      // EPIPE is the helper's own answer and the exit code already reports it.
+      stdin.on('error', () => undefined)
+      stdin.end(input, 'utf8')
+    }
+  })
 }
 
 /**
@@ -186,18 +233,19 @@ export function copyToClipboard(text: string): boolean {
  * @param text - the text to place on the clipboard.
  * @returns whether the clipboard took the text.
  */
-function copyOnWindows(text: string): boolean {
+async function copyOnWindows(text: string): Promise<boolean> {
   const file = join(tmpdir(), `kibborg-clip-${String(process.pid)}-${String(Date.now())}.txt`)
   try {
     writeFileSync(file, text, 'utf8')
     const quoted = file.replace(/'/gu, "''")
     const script = `Set-Clipboard -Value (Get-Content -LiteralPath '${quoted}' -Raw -Encoding UTF8)`
-    const result = spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8' })
-    if (!result.error && result.status === 0) return true
+    // The copy must not freeze the frame: the helper runs in the background while
+    // the terminal keeps scrolling and selecting.
+    const status = await runHelper('powershell', ['-NoProfile', '-NonInteractive', '-Command', script])
+    if (status === 0) return true
     // A machine without PowerShell still gets the best effort the old helper can
     // give, which is readable for ASCII and wrong only for non-Latin text.
-    const fallback = spawnSync('clip', [], { input: text, encoding: 'utf8' })
-    return !fallback.error && fallback.status === 0
+    return await runHelper('clip', [], text) === 0
   } catch {
     return false
   } finally {

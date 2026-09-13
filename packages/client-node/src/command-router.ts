@@ -259,7 +259,8 @@ async function copy(context: LocalCommandContext): Promise<CommandOutcome> {
   if (read === undefined) return { ok: false, error: 'could not read this session' }
   const text = lastAssistantText(read.events)
   if (text === undefined) return { ok: false, error: 'this session has no answer to copy' }
-  return copyToClipboard(text)
+  const copied = await copyToClipboard(text)
+  return copied
     ? { ok: true, text: `copied ${String(text.length)} characters` }
     : { ok: false, error: 'no clipboard helper is available on this platform' }
 }

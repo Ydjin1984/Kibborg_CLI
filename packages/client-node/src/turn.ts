@@ -15,6 +15,7 @@ import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import { createTurnRenderer, type Palette, type ToolResultDetail, type TurnRenderer } from '@kibborg/tui'
 import { prettyArguments } from './arguments.ts'
+import { createAgentTracker, type AgentObservation } from './agents.ts'
 import {
   answerApproval,
   answerQuestions,
@@ -95,6 +96,13 @@ export interface TurnOptions {
   readonly onEvent?: (event: SessionEvent) => void
   /** Stop after this many turns of this session, cancelling the one in flight. */
   readonly maxTurns?: number
+  /**
+   * Route the session's chat model runs on, when the caller already read it.
+   *
+   * The transcript names the agent behind each line; without this the head's
+   * model is learned from the session's own `request/header` instead.
+   */
+  readonly model?: string
 }
 
 /** One attached file as the prompt contract expects it. */
@@ -171,8 +179,13 @@ function buildContent(task: string, files: readonly string[] | undefined): {
   return { content, images }
 }
 
-/** Percentage of the context window the newest sample occupies, when known. */
-function contextPercent(pressure: ContextPressure | undefined): number {
+/** The task a delegation named, when its arguments carry one. */
+function delegationLabel(arguments_: unknown): string | undefined {
+  const description = (arguments_ as { readonly description?: unknown } | null | undefined)?.description
+  return typeof description === 'string' && description !== '' ? description : undefined
+}
+
+/** Percentage of the context window the newest sample occupies, when known. */function contextPercent(pressure: ContextPressure | undefined): number {
   if (pressure === undefined) return 0
   const used = pressure.projectedTokens ?? pressure.pressureTokens
   const window = pressure.contextWindow
@@ -416,6 +429,46 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
   /** When each running tool call started, so its result can report a duration. */
   const toolStarts = new Map<string, number>()
   let pressure: ContextPressure | undefined
+  // Who is working: the session the user typed into, and the subagents it
+  // delegates to. The tree is read before the prompt so a child's first event
+  // already has an identity to draw it with.
+  const anonymous = process.env['KIBBORG_NO_AGENTS'] === '1'
+  const agents = createAgentTracker(client, {
+    sessionId,
+    ...(options.model === undefined ? {} : { model: options.model }),
+  })
+  if (!anonymous) await agents.load()
+  /** Session whose agent the surface is currently showing. */
+  let announced: string | undefined
+  /** Activity already reported for that agent, so a heading is not rewritten per event. */
+  let announcedDetail: string | undefined
+  /** Report the agent that just spoke, opening its branch on the surface. */
+  const announce = (observation: AgentObservation): void => {
+    if (anonymous) return
+    if (observation.finished) {
+      renderer.agentDone?.(observation.agent, observation.detail)
+      if (announced === observation.agent.sessionId) announced = undefined
+      return
+    }
+    if (observation.renamed === true) {
+      // The agent's name or route became known after its heading was drawn, so the
+      // heading is replaced instead of keeping the session id on screen.
+      announced = undefined
+      announcedDetail = undefined
+    }
+    if (announced === observation.agent.sessionId
+      && (observation.detail === undefined || observation.detail === announcedDetail)) return
+    announced = observation.agent.sessionId
+    announcedDetail = observation.detail
+    renderer.agent?.(observation.agent, observation.detail)
+  }
+  /** Return the surface to the session the user typed into. */
+  const announceRoot = (): void => {
+    if (anonymous || announced === sessionId) return
+    announced = sessionId
+    announcedDetail = undefined
+    renderer.agent?.(agents.root())
+  }
   const finish = (kind: string, errorMessage?: string): TurnOutcome => {
     renderer.closeAnswer()
     const changed = [...changedPaths(cwd)].filter(path => !changedBefore.has(path))
@@ -443,6 +496,11 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
     if (payload.type === 'session/projection') {
       if (payload.sessionId === sessionId && payload.key === PRESSURE_KEY) {
         pressure = payload.value as ContextPressure
+      } else {
+        // A subagent's own projection is how the surface learns what that agent is
+        // doing right now: the host pushes activity only for subagent sessions.
+        const observation = agents.observe(payload)
+        if (observation !== undefined) announce(observation)
       }
       continue
     }
@@ -483,7 +541,25 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
       if (!accepted) renderer.notice('the question answer was not accepted')
       continue
     }
-    if (payload.type !== 'session/event' || payload.sessionId !== sessionId) continue
+    if (payload.type !== 'session/event') continue
+    if (payload.sessionId !== sessionId) {
+      // A subagent of this run: its tool calls are shown inside the branch of the
+      // agent that delegated them, while its own prose stays in its own session.
+      const observation = agents.observe(payload)
+      if (observation === undefined) continue
+      if (payload.event.type === 'tool/call') {
+        announce(observation)
+        renderer.toolCall(payload.event.data.name, summarizeArguments(payload.event.data.arguments), undefined)
+      } else if (payload.event.type === 'tool/result') {
+        announce(observation)
+        const name = (payload.event.data as { readonly name?: string }).name ?? 'tool'
+        if ((payload.event.data as { readonly error?: unknown }).error !== undefined) renderer.toolFailure(name, 'failed')
+        else renderer.toolDone?.(name)
+      } else {
+        announce(observation)
+      }
+      continue
+    }
     const event = payload.event
     options.onEvent?.(event)
 
@@ -516,6 +592,13 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
       continue
     }
     if (event.type === 'tool/call') {
+      announceRoot()
+      // A one-shot delegation carries the task it was given in its own arguments and
+      // leaves no descriptor behind, so the child takes its name from this call.
+      if (event.data.name === 'executor') {
+        const label = delegationLabel(event.data.arguments)
+        if (label !== undefined) agents.hint(label)
+      }
       toolStarts.set(event.data.name, Date.now())
       const input = prettyArguments(event.data.arguments)
       const change = argumentDiff(event.data.name, event.data.arguments)

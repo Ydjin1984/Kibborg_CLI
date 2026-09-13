@@ -393,6 +393,7 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       sink: { write: chunk => void feed.write(chunk) },
       cols: screen.cols,
       signal: controller.signal,
+      ...session.state.model === undefined || session.state.model === '' ? {} : { model: session.state.model },
       ...(session.settings.timestamps ? { timestamps: true } : {}),
     })
     if (animation !== undefined) clearInterval(animation)

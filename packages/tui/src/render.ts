@@ -10,6 +10,7 @@
  * @module @kibborg/tui/render
  */
 
+import type { AgentBadge } from './log.ts'
 import type { FooterInput, StatusInput } from './status.ts'
 import { statusLine, turnFooter } from './status.ts'
 import type { Palette } from './tokens.ts'
@@ -92,6 +93,19 @@ export interface TurnRenderer {
    * @param paths - repository-relative paths the working tree gained.
    */
   changedFiles?(paths: readonly string[]): void
+  /**
+   * Announce which agent is working, and what it is doing.
+   *
+   * Optional: the transcript shows a heading per agent with its model and role
+   * and indents that agent's own rows under a branch, while the scrollback
+   * renderer prints one line. The same call repeats while the agent works, so an
+   * implementation updates the heading it already opened instead of adding one.
+   * @param badge - the agent, its model, its role, and its depth in this session.
+   * @param detail - what the agent is doing now, when the host reports it.
+   */
+  agent?(badge: AgentBadge, detail?: string): void
+  /** Close the branch of an agent that finished. */
+  agentDone?(badge: AgentBadge, summary?: string): void
   /** Append a streamed piece of the assistant's visible text. */
   text(delta: string): void
   /** Report a non-fatal notice (retry, output cap). */
@@ -112,9 +126,9 @@ export interface TurnRenderer {
 const BODY_INDENT = '  '
 
 /** Build the `+N −M` suffix of a changed-file line, empty when nothing changed. */
-function changeCounts(added: number | undefined, removed: number | undefined): string {
+function changeCounts(palette: Palette, added: number | undefined, removed: number | undefined): string {
   if (added === undefined && removed === undefined) return ''
-  return `   +${String(added ?? 0)} −${String(removed ?? 0)}`
+  return `   ${palette.paint(`+${String(added ?? 0)}`, 'DiffAdd')} ${palette.paint(`−${String(removed ?? 0)}`, 'DiffRemove')}`
 }
 
 /**
@@ -160,10 +174,27 @@ export function createTurnRenderer(options: TurnRendererOptions): TurnRenderer {
       sink.write(`\n${BODY_INDENT}${palette.paint('You', 'Muted')}${stamp()}\n`)
       sink.write(`${BODY_INDENT}${palette.paint(text, 'Text')}\n`)
     },
+    agent(badge, detail) {
+      // In the scrollback every agent line stands alone, because there is no frame
+      // to indent rows against; the branch glyph and the role carry who it is.
+      const branch = badge.depth === 0 ? '' : `${'│  '.repeat(Math.max(0, badge.depth - 1))}├─ `
+      const parts = [
+        palette.paint(badge.label, badge.token),
+        ...badge.model === undefined || badge.model === '' ? [] : [palette.paint(badge.model, 'Subtle')],
+        ...badge.role === undefined || badge.role === '' ? [] : [palette.paint(badge.role, 'Muted')],
+        ...detail === undefined || detail === '' ? [] : [palette.paint(detail, 'Text')],
+      ]
+      sink.write(`\n  ${palette.paint(branch, 'Subtle')}${palette.paint('◆', badge.token)}  ${parts.join('   ')}\n`)
+    },
+    agentDone(badge, summary) {
+      const branch = badge.depth === 0 ? '' : `${'│  '.repeat(Math.max(0, badge.depth - 1))}└─ `
+      const tail = summary === undefined || summary === '' ? '' : `   ${palette.paint(summary, 'Muted')}`
+      sink.write(`  ${palette.paint(branch, 'Subtle')}${palette.paint('✓', 'Success')}  ${palette.paint(badge.label, badge.token)}${tail}\n`)
+    },
     toolCall(name, argument, call) {
       tools += 1
       const shown = argument === undefined || argument === '' ? '' : `   ${palette.paint(argument, 'Text')}`
-      const counts = changeCounts(call?.added, call?.removed)
+      const counts = changeCounts(palette, call?.added, call?.removed)
       sink.write(`\n    ${palette.paint('⚙', 'Accent')}  ${palette.paint(name, 'Muted')}${shown}${counts}\n`)
       if (call?.input !== undefined && call.input.trim() !== '') {
         writeBlock(sink, palette, 'IN ', call.input.split('\n'))

@@ -9,8 +9,8 @@
 
 import type { CellBuffer } from './framebuffer.ts'
 import type { Rect } from './box.ts'
-import type { StyledLine } from './log.ts'
-import { clampScroll, lineWidth, plainText, scrollIndicator } from './log.ts'
+import type { StyledLine, Transcript } from './log.ts'
+import { clampScroll, lineWidth, plainText, scrollIndicator, transcriptWindow } from './log.ts'
 
 /** Scroll state of the transcript view. */
 export interface LogViewState {
@@ -28,6 +28,19 @@ export interface LogViewResult {
   readonly total: number
   /** Heading pinned to the top row, or `null` when the first row is a heading. */
   readonly sticky: string | null
+  /** The rows the viewport shows, top to bottom. */
+  readonly visible: readonly StyledLine[]
+}
+
+/**
+ * A transcript the view can read: either every rendered line, or the parts a
+ * frame takes its viewport from.
+ */
+export type LogSource = readonly StyledLine[] | Transcript
+
+/** Whether the source is a transcript of parts rather than a flat line list. */
+function isTranscript(source: LogSource): source is Transcript {
+  return (source as Transcript).parts !== undefined
 }
 
 /**
@@ -35,16 +48,18 @@ export interface LogViewResult {
  *
  * @param buf - the frame buffer to paint into.
  * @param rect - the log region.
- * @param lines - the rendered transcript.
+ * @param source - the rendered transcript, flat or as parts.
  * @param state - current scroll state; `follow` wins over `offset`.
- * @returns the offset used, the transcript height, and the pinned heading.
+ * @returns the offset used, the transcript height, the pinned heading, and the visible rows.
  */
-export function drawLogView(buf: CellBuffer, rect: Rect, lines: readonly StyledLine[], state: LogViewState): LogViewResult {
-  if (rect.w <= 0 || rect.h <= 0) return { offset: 0, total: lines.length, sticky: null }
-  const total = lines.length
+export function drawLogView(buf: CellBuffer, rect: Rect, source: LogSource, state: LogViewState): LogViewResult {
+  const total = isTranscript(source) ? source.total : source.length
+  if (rect.w <= 0 || rect.h <= 0) return { offset: 0, total, sticky: null, visible: [] }
   const maxOffset = Math.max(0, total - rect.h)
   const offset = state.follow ? maxOffset : clampScroll(state.offset, total, rect.h)
-  const visible = lines.slice(offset, offset + rect.h)
+  const visible = isTranscript(source)
+    ? transcriptWindow(source, rect.h, offset)
+    : (source as readonly StyledLine[]).slice(offset, offset + rect.h)
 
   const first = visible[0]
   const sticky = first !== undefined && first.heading !== true && first.anchor !== undefined ? first.anchor : null
@@ -74,7 +89,7 @@ export function drawLogView(buf: CellBuffer, rect: Rect, lines: readonly StyledL
     buf.write(x, rect.y + rect.h - 1, label, 'Muted', { dim: true })
   }
   if (total > rect.h && rect.w >= 2) drawScrollbar(buf, rect, offset, maxOffset)
-  return { offset, total, sticky }
+  return { offset, total, sticky, visible }
 }
 
 /**

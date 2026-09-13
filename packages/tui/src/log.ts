@@ -20,6 +20,8 @@ export type LogKind =
   | 'assistant'
   | 'stage'
   | 'tool'
+  /** A subagent entering or leaving the turn: who it is, what it runs on, its role. */
+  | 'agent'
   | 'notice'
   /** A short confirmation that fades on its own: a copy, a model switch. */
   | 'info'
@@ -32,6 +34,32 @@ export type LogKind =
 
 /** Lifecycle of a tool call. */
 export type ToolStatus = 'running' | 'ok' | 'fail'
+
+/** Which agent produced an entry, and how it is drawn. */
+export interface AgentBadge {
+  /** Short name of the agent: a model name, or the label the delegation carried. */
+  readonly label: string
+  /**
+   * Session the agent works in.
+   *
+   * The label can change while an agent works — a delegation names itself after
+   * it starts — so the identity, not the name, is what a heading is matched on.
+   */
+  readonly sessionId?: string
+  /** Role the agent runs in, such as `ORCHESTRATOR`; absent when the deployment names none. */
+  readonly role?: string
+  /** Model route in `provider/model` form, when it is known. */
+  readonly model?: string
+  /**
+   * Distance from the session the user typed into: zero for that session itself,
+   * one for a subagent it started, and so on. It decides the branch indent.
+   */
+  readonly depth: number
+  /** Color this agent is drawn in. */
+  readonly token: TokenName
+  /** Whether the agent is starting work or has finished it. */
+  readonly state?: 'open' | 'done'
+}
 
 /** One transcript entry. */
 export interface LogEntry {
@@ -64,6 +92,8 @@ export interface LogEntry {
   readonly added?: number
   /** Lines the change removed. */
   readonly removed?: number
+  /** Monotonic version of this entry; the render cache reuses lines until it changes. */
+  readonly revision?: number
   /**
    * Whether a long block is expanded.
    *
@@ -78,12 +108,27 @@ export interface LogEntry {
   readonly verb?: string
   /** Hotkey legend of the plan widget, for `kind: 'plan'`. */
   readonly keys?: string
+  /**
+   * The agent this entry belongs to.
+   *
+   * A subagent's work sits inside the turn that delegated it, so the transcript
+   * shows which model did what instead of one undifferentiated stream. The
+   * heading entry (`kind: 'agent'`) carries the agent without a branch indent.
+   */
+  readonly agent?: AgentBadge
 }
 
 /** The transcript model. */
 export interface LogModel {
   /** Entries in display order. */
   readonly entries: readonly LogEntry[]
+  /**
+   * Monotonic counter of this model's changes.
+   *
+   * A repaint reuses the previous transcript while this number is unchanged, so
+   * scrolling and selection over a long session cost the viewport, not the log.
+   */
+  readonly version: number
   /**
    * Add an entry.
    * @param entry - the entry without its identity.
@@ -154,6 +199,15 @@ export interface RenderOptions {
    * URL); a redirected or plain view must not receive them.
    */
   readonly hyperlinks?: boolean
+  /**
+   * Version of the transcript model these entries came from.
+   *
+   * When it is given, an unchanged version reuses the transcript of the previous
+   * paint instead of walking every entry again.
+   */
+  readonly version?: number
+  /** Lines drawn above the transcript, such as the welcome screen. */
+  readonly leading?: readonly StyledLine[]
 }
 
 /** Indentation of transcript body text. */
@@ -164,6 +218,12 @@ const TOOL_INDENT = '    '
 
 /** Indentation of a `⎿` continuation row. */
 const DETAIL_INDENT = '       '
+
+/** Indentation of a row inside a subagent's branch. */
+const BRANCH_INDENT = '  │  '
+
+/** Branch levels a deeper tree is drawn with; past it the transcript runs out of width. */
+const MAX_BRANCH_DEPTH = 4
 
 /** Lines a single tool block prints before it reports what it dropped. */
 const BLOCK_LINE_LIMIT = 200
@@ -183,29 +243,47 @@ const COLLAPSED_LINES = 5
  */
 export function createLog(): LogModel {
   const entries: LogEntry[] = []
+  // Identity to position, so a streaming answer patches its own entry instead of
+  // scanning the whole transcript on every chunk.
+  const positions = new Map<number, number>()
   let nextId = 1
+  let version = 0
   return {
     get entries() {
       return entries
     },
+    get version() {
+      return version
+    },
     append(entry) {
       const id = nextId
       nextId += 1
-      entries.push({ ...entry, id })
+      positions.set(id, entries.length)
+      entries.push({ ...entry, id, revision: 1 })
+      version += 1
       return id
     },
     patch(id, patch) {
-      const index = entries.findIndex(entry => entry.id === id)
-      if (index === -1) return
-      entries[index] = { ...(entries[index] as LogEntry), ...patch }
+      const index = positions.get(id)
+      if (index === undefined) return
+      const current = entries[index] as LogEntry
+      entries[index] = { ...current, ...patch, revision: (current.revision ?? 0) + 1 }
+      version += 1
     },
     remove(id) {
-      const index = entries.findIndex(entry => entry.id === id)
-      if (index === -1) return
+      const index = positions.get(id)
+      if (index === undefined) return
       entries.splice(index, 1)
+      positions.delete(id)
+      for (let moved = index; moved < entries.length; moved += 1) {
+        positions.set((entries[moved] as LogEntry).id, moved)
+      }
+      version += 1
     },
     clear() {
       entries.length = 0
+      positions.clear()
+      version += 1
     },
   }
 }
@@ -427,7 +505,10 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
       ]
       const suffix: Span[] = []
       if (entry.added !== undefined || entry.removed !== undefined) {
-        suffix.push({ text: `   +${String(entry.added ?? 0)} −${String(entry.removed ?? 0)}`, token: 'DiffAdd' })
+        // Added and removed lines are two facts, so they carry two colors: a
+        // glance at the line says whether a change grew or shrank the file.
+        suffix.push({ text: `   +${String(entry.added ?? 0)}`, token: 'DiffAdd' })
+        suffix.push({ text: ` −${String(entry.removed ?? 0)}`, token: 'DiffRemove' })
       }
       if (entry.durationMs !== undefined) {
         suffix.push({ text: `   ${entry.durationMs < 1000 ? `${String(Math.round(entry.durationMs))}ms` : `${(entry.durationMs / 1000).toFixed(1)}s`}`, token: 'Muted', dim: true })
@@ -458,6 +539,40 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
       }
       if (entry.output !== undefined && entry.output.trim() !== '') {
         lines.push(...block('OUT', entry.output.split('\n'), width, 'Muted'))
+      }
+      return condense(lines, entry, width)
+    }
+    case 'agent': {
+      // Who is working: the model, its role, and the name it was delegated under.
+      // A subagent heading opens a branch that its own tool rows sit inside.
+      const badge = entry.agent
+      const token = badge?.token ?? 'Accent'
+      const done = badge?.state === 'done'
+      const glyph = done ? '✓' : badge === undefined || badge.depth === 0 ? '◆' : '◇'
+      const branch = badge === undefined || badge.depth === 0 ? INDENT : `  ${done ? '└─' : '├─'} `
+      const spans: Span[] = [
+        { text: branch, token: 'Subtle' },
+        { text: glyph, token: done ? 'Success' : token, bold: true },
+        { text: '  ', token: 'Muted' },
+        { text: badge?.label ?? 'agent', token, bold: true },
+      ]
+      if (badge?.model !== undefined && badge.model !== '') {
+        spans.push({ text: '   ', token: 'Muted' }, { text: badge.model, token: 'Subtle', dim: true })
+      }
+      if (badge?.role !== undefined && badge.role !== '') {
+        spans.push({ text: '   ', token: 'Muted' }, { text: badge.role, token: 'Muted', bold: true })
+      }
+      const lines: StyledLine[] = [fitLine({ spans }, width)]
+      if (entry.text.trim() !== '') {
+        const room = Math.max(1, width - branch.length - (badge?.label.length ?? 5) - 6)
+        for (const wrapped of wrapText(entry.text, room)) {
+          lines.push(fitLine({
+            spans: [
+              { text: `${branch}   `, token: 'Subtle' },
+              { text: wrapped, token: 'Text' },
+            ],
+          }, width))
+        }
       }
       return condense(lines, entry, width)
     }
@@ -533,6 +648,66 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
 }
 
 /**
+ * Rendered lines of one entry, keyed by everything that can change them.
+ *
+ * A long session repaints its frame while events stream in, and re-parsing the
+ * Markdown of every entry on every frame is what made scrolling and selection lag.
+ * The key carries the entry's revision, so a patched tool call or a growing answer
+ * is re-rendered while everything else is reused as-is.
+ */
+interface EntryCache {
+  /** Lines rendered for the newest revision seen. */
+  readonly lines: readonly StyledLine[]
+  /** Cache key: width, revision, and the tick for entries that animate. */
+  readonly key: string
+}
+
+const ENTRY_CACHE = new Map<number, EntryCache>()
+/**
+ * How many rendered entries stay cached.
+ *
+ * A session that outgrows the cache re-renders its oldest entries on every frame
+ * that changes anything, which is exactly the streaming case, so the bound has to
+ * sit well above a long session's entry count. One entry's lines cost a few
+ * hundred bytes, so the ceiling stays in the low tens of megabytes.
+ */
+const ENTRY_CACHE_LIMIT = 20000
+
+/** Evict the oldest rendered entries once the cache grows past its bound. */
+function trimEntryCache(): void {
+  if (ENTRY_CACHE.size <= ENTRY_CACHE_LIMIT) return
+  let excess = ENTRY_CACHE.size - ENTRY_CACHE_LIMIT
+  // Map iterates in insertion order, and a re-rendered entry keeps its original
+  // position, so the head is the oldest rendering in the cache.
+  for (const id of ENTRY_CACHE.keys()) {
+    if (excess <= 0) break
+    ENTRY_CACHE.delete(id)
+    excess -= 1
+  }
+}
+
+/** Render one entry through the cache. */
+function renderEntryCached(entry: LogEntry, width: number, options: RenderOptions, now: number): readonly StyledLine[] {
+  // Only a running entry animates, so only it has to re-render on every tick.
+  const animates = entry.status === 'running' || entry.kind === 'stage'
+  const tick = animates ? (options.tick ?? 0) : 0
+  // A subagent's rows are indented under its branch, so the indent is part of what
+  // the entry renders to and therefore part of its cache key.
+  const depth = entry.kind === 'agent' ? 0 : entry.agent?.depth ?? 0
+  const branch = depth > 0 ? BRANCH_INDENT.repeat(Math.min(depth, MAX_BRANCH_DEPTH)) : ''
+  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}`
+  const cached = ENTRY_CACHE.get(entry.id)
+  if (cached !== undefined && cached.key === key) return cached.lines
+  const inner = renderEntry(entry, Math.max(8, width - branch.length), options, now)
+  const lines = branch === ''
+    ? inner
+    : inner.map(line => ({ ...line, spans: [{ text: branch, token: 'Subtle' as TokenName }, ...line.spans] }))
+  ENTRY_CACHE.set(entry.id, { lines, key })
+  trimEntryCache()
+  return lines
+}
+
+/**
  * Render the transcript into styled lines.
  *
  * A blank line separates entries of different kinds, so the transcript reads as
@@ -547,15 +722,167 @@ export function renderEntries(
   width: number,
   options: RenderOptions = {},
 ): readonly StyledLine[] {
-  const now = options.now ?? Date.now()
+  const transcript = renderTranscript(entries, width, options)
   const lines: StyledLine[] = []
+  for (const part of transcript.parts) {
+    for (const line of part) lines.push(line)
+  }
+  return lines
+}
+
+/**
+ * The rendered transcript, kept as its parts.
+ *
+ * Repainting a frame used to concatenate every row of the log; on a session of
+ * a few thousand entries that cost hundreds of milliseconds per frame, so
+ * scrolling, selection, and streaming all lagged. The parts let a frame take
+ * only the rows its viewport shows, while a part whose entry did not change is
+ * reused as it is.
+ *
+ * The storage is reused by the next render of the same model: hold the rows you
+ * need, not the transcript.
+ */
+export interface Transcript {
+  /** Rendered parts in display order, each from one entry or one separator. */
+  readonly parts: readonly (readonly StyledLine[])[]
+  /** Row of each part's first line, ascending and one longer than `parts`. */
+  readonly tops: readonly number[]
+  /** Rows in the whole transcript. */
+  readonly total: number
+}
+
+/** The line that separates two entries of different kinds. */
+const SEPARATOR: readonly StyledLine[] = [{ spans: [] }]
+
+/** Reusable transcript storage: a repaint overwrites the parts it keeps. */
+interface TranscriptState {
+  readonly parts: (readonly StyledLine[])[]
+  readonly tops: number[]
+  total: number
+}
+
+/** The transcript the last paint produced, and the inputs it was built from. */
+let transcriptCache: {
+  readonly entries: readonly LogEntry[]
+  readonly width: number
+  readonly version: number | undefined
+  readonly hyperlinks: boolean
+  readonly tick: number
+  readonly leading: readonly StyledLine[] | undefined
+  readonly state: TranscriptState
+} | undefined
+
+/** Whether any entry animates, so only then does a frame depend on the tick. */
+function animates(entries: readonly LogEntry[]): boolean {
   for (const entry of entries) {
+    if (entry.status === 'running' || entry.kind === 'stage') return true
+  }
+  return false
+}
+
+/**
+ * Render the transcript and cache it against the inputs that can change it.
+ *
+ * @param entries - the transcript entries, in display order.
+ * @param width - the region width the lines must fit.
+ * @param options - animation tick, hyperlink, and model-version settings.
+ * @returns the transcript parts and their row offsets.
+ */
+export function renderTranscript(
+  entries: readonly LogEntry[],
+  width: number,
+  options: RenderOptions = {},
+): Transcript {
+  const now = options.now ?? Date.now()
+  const tick = animates(entries) ? (options.tick ?? 0) : 0
+  const hyperlinks = options.hyperlinks === true
+  // Relative stamps are a function of the clock, not of the model, so a transcript
+  // built for one `now` cannot answer for another: those renders are not cached.
+  const cacheable = options.timestamps !== true && options.ageOf === undefined
+  const cached = transcriptCache
+  if (cacheable
+    && cached !== undefined
+    && cached.entries === entries
+    && cached.width === width
+    && cached.version !== undefined
+    && cached.version === options.version
+    && cached.hyperlinks === hyperlinks
+    && cached.tick === tick
+    && cached.leading === options.leading) {
+    return cached.state
+  }
+  const state: TranscriptState = cached?.state ?? { parts: [], tops: [], total: 0 }
+  // A different entry list means a different transcript model — `/new`, a fork, or
+  // a test's second log — and entry identities restart from one there, so the
+  // per-entry cache would answer with lines another log rendered.
+  if (cached !== undefined && cached.entries !== entries) ENTRY_CACHE.clear()
+  const parts = state.parts as (readonly StyledLine[])[]
+  const tops = state.tops
+  parts.length = 0
+  tops.length = 0
+  let top = 0
+  const push = (lines: readonly StyledLine[]): void => {
+    if (lines.length === 0) return
+    tops.push(top)
+    parts.push(lines)
+    top += lines.length
+  }
+  const leading = options.leading
+  if (leading !== undefined) push(leading)
+  const live = new Set<number>()
+  let lastLine: StyledLine | undefined
+  for (const entry of entries) {
+    live.add(entry.id)
     const separated = entry.kind === 'user' || entry.kind === 'assistant' || entry.kind === 'stage' || entry.kind === 'plan'
-    if (lines.length > 0 && separated) {
-      const last = lines[lines.length - 1]
-      if (last !== undefined && plainText(last).trim() !== '') lines.push({ spans: [] })
+    if (separated && lastLine !== undefined && plainText(lastLine).trim() !== '') push(SEPARATOR)
+    const lines = renderEntryCached(entry, width, options, now)
+    push(lines)
+    lastLine = lines[lines.length - 1] ?? lastLine
+  }
+  tops.push(top)
+  state.total = top
+  // Dropped entries must not keep their lines alive: the cache is keyed by id, and
+  // a cleared transcript reuses ids after a fork or a `/new`.
+  if (ENTRY_CACHE.size > live.size) {
+    for (const id of [...ENTRY_CACHE.keys()]) if (!live.has(id)) ENTRY_CACHE.delete(id)
+  }
+  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, state }
+  return state
+}
+
+/**
+ * Take the rows one viewport shows.
+ * @param transcript - the rendered transcript.
+ * @param height - viewport height; a non-positive height yields no lines.
+ * @param offset - rows hidden above the viewport.
+ * @returns the visible lines, top to bottom.
+ */
+export function transcriptWindow(transcript: Transcript, height: number, offset: number): readonly StyledLine[] {
+  if (height <= 0) return []
+  const start = clampScroll(offset, transcript.total, height)
+  const end = Math.min(transcript.total, start + height)
+  const { parts, tops } = transcript
+  let low = 0
+  let high = parts.length - 1
+  let found = -1
+  while (low <= high) {
+    const middle = (low + high) >> 1
+    const top = tops[middle] ?? 0
+    const bottom = (tops[middle + 1] ?? transcript.total)
+    if (bottom <= start) low = middle + 1
+    else if (top > start) high = middle - 1
+    else {
+      found = middle
+      break
     }
-    lines.push(...renderEntry(entry, width, options, now))
+  }
+  const lines: StyledLine[] = []
+  for (let index = found === -1 ? low : found; index < parts.length && lines.length < end - start; index += 1) {
+    const part = parts[index] as readonly StyledLine[]
+    const from = Math.max(0, start - (tops[index] ?? 0))
+    for (let row = from; row < part.length && lines.length < end - start; row += 1) {
+      lines.push(part[row] as StyledLine)
+    }
   }
   return lines
 }

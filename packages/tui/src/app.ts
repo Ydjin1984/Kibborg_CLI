@@ -20,8 +20,8 @@ import type { Rect } from './box.ts'
 import { dashedLine, drawBox } from './box.ts'
 import { computeLayout, densityFor, type Density } from './layout.ts'
 import type { KeyEvent } from './input.ts'
-import type { LogModel, Span, StyledLine } from './log.ts'
-import { createLog, clampScroll, renderEntries, wrapText } from './log.ts'
+import type { LogModel, Span } from './log.ts'
+import { createLog, clampScroll, renderTranscript, wrapText } from './log.ts'
 import { drawLogView, paintStyledLine } from './logview.ts'
 import { drawHeader, HEADER_HEIGHT, type HeaderState } from './header.ts'
 import { renderWelcome, type WelcomeState } from './welcome.ts'
@@ -377,13 +377,14 @@ export function createApp(options: AppOptions): App {
     const buf = createBuffer(cols, rows, palette)
     if (welcome === null) drawHeader(buf, layout.header, headerState(density))
 
-    const body: StyledLine[] = welcome === null
-      ? [...renderEntries(log.entries, layout.log.w, { tick, runningGlyph: spinnerFrame(tick), hyperlinks: true })]
-      : [
-          ...renderWelcome({ ...welcome, tick }, layout.log.w, layout.log.h),
-          ...renderEntries(log.entries, layout.log.w, { tick, runningGlyph: spinnerFrame(tick), hyperlinks: true }),
-        ]
-    transcriptHeight = body.length
+    const body = renderTranscript(log.entries, layout.log.w, {
+      tick,
+      runningGlyph: spinnerFrame(tick),
+      hyperlinks: true,
+      version: log.version,
+      ...(welcome === null ? {} : { leading: renderWelcome({ ...welcome, tick }, layout.log.w, layout.log.h) }),
+    })
+    transcriptHeight = body.total
     viewportHeight = layout.log.h
     if (follow) offset = clampScroll(Number.MAX_SAFE_INTEGER, transcriptHeight, viewportHeight)
     const view = drawLogView(buf, layout.log, body, { offset, follow })
@@ -394,8 +395,7 @@ export function createApp(options: AppOptions): App {
     // exactly as the view drew them).
     collapsedRows.clear()
     const startRow = layout.log.y + Math.max(0, layout.log.h - Math.min(layout.log.h, transcriptHeight - offset))
-    const visible = body.slice(offset, offset + layout.log.h)
-    for (const [index, line] of visible.entries()) {
+    for (const [index, line] of view.visible.entries()) {
       if (line.collapsed === true && line.entryId !== undefined) collapsedRows.set(startRow + index, line.entryId)
     }
 

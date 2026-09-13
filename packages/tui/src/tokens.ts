@@ -102,6 +102,31 @@ const FALLBACK: Readonly<Record<TokenName, string>> = {
 /** No-op palette for plain output. */
 export const plainPalette: Palette = { paint: text => text, sgr: () => '' }
 
+/**
+ * Colors an agent can be drawn in.
+ *
+ * They are existing theme tokens, chosen for even separation at 16 colors, so a
+ * deployment never has to declare a color per agent.
+ */
+const AGENT_TOKENS: readonly TokenName[] = ['Accent', 'Orange', 'BashPink', 'PermLav', 'Shimmer', 'Warn', 'Answer', 'Success']
+
+/**
+ * Pick the color of one agent.
+ *
+ * The same name always maps to the same color, so a transcript stays readable
+ * while agents come and go, and two agents in one run rarely share a color.
+ * @param seed - the agent's identity, normally its model or label.
+ * @returns the token to draw that agent in.
+ */
+export function agentToken(seed: string): TokenName {
+  let hash = 0
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) | 0
+  }
+  const slot = Math.abs(hash) % AGENT_TOKENS.length
+  return AGENT_TOKENS[slot] as TokenName
+}
+
 /** Bold/dim/underline parameters, appended after the color parameters of one SGR sequence. */
 function attributeCodes(style: TokenStyle | undefined): readonly string[] {
   const codes: string[] = []
