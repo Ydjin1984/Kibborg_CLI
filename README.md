@@ -598,6 +598,12 @@ node tests/frame-render.mjs --boot-ms 20000 --step "send:/model" \
   --step "keys:\u001b[B" --step "keys:\r" --step "keys:\u001b[A" --step "keys:\r"
 ```
 
+Стоимость кадра на длинной ленте измеряется отдельно — прокрутка это поток клавиш, и каждая клавиша рисует кадр:
+
+```bash
+node tests/perf-scroll.mjs --entries 20000
+```
+
 Ограничение среды: `conpty` в Windows не пропускает альтернативный экран, mouse-события и win32-input-mode. Такие вещи проверяются юнит-тестами, а не PTY.
 
 ---

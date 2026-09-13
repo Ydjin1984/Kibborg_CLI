@@ -18,6 +18,14 @@ export interface LogViewState {
   readonly offset: number
   /** Whether the viewport stays pinned to the newest line. */
   readonly follow: boolean
+  /**
+   * Entry the reader moved to, when one is chosen.
+   *
+   * The mark belongs to the view rather than to the transcript: moving it repaints
+   * a frame, not the whole rendered log, which is what keeps scrolling cheap on a
+   * long session.
+   */
+  readonly selectedId?: number
 }
 
 /** One transcript line and the frame row it was painted on. */
@@ -88,8 +96,9 @@ export function drawLogView(buf: CellBuffer, rect: Rect, source: LogSource, stat
   const painted: PaintedRow[] = []
   for (const line of visible) {
     if (row >= rect.h) break
-    paintStyledLine(buf, rect.x, rect.y + row, rect.w, line)
-    painted.push({ row: rect.y + row, line })
+    const marked = state.selectedId !== undefined && line.entryId === state.selectedId ? markSelected(line) : line
+    paintStyledLine(buf, rect.x, rect.y + row, rect.w, marked)
+    painted.push({ row: rect.y + row, line: marked })
     row += 1
   }
 
@@ -136,6 +145,24 @@ export function paintStyledLine(buf: CellBuffer, x: number, y: number, maxWidth:
     buf.write(column, y, span.text, span.token, style, span.url)
     column += lineWidth({ spans: [span] })
   }
+}
+
+/**
+ * Put the reader's mark in the first column of a chosen entry's row.
+ *
+ * The mark replaces the columns the indent already used, so nothing shifts when the
+ * selection moves; one row of the viewport is copied, never the whole transcript.
+ * @param line - one row of the chosen entry.
+ * @returns the row with the mark.
+ */
+function markSelected(line: StyledLine): StyledLine {
+  const spans = [...line.spans]
+  const first = spans[0]
+  if (first === undefined) return { ...line, spans: [{ text: '▌', token: 'Accent' }] }
+  if (first.text.startsWith('  ')) spans[0] = { ...first, text: `▌ ${first.text.slice(2)}` }
+  else if (first.text.startsWith(' ')) spans[0] = { ...first, text: `▌${first.text.slice(1)}` }
+  else spans.unshift({ text: '▌', token: 'Accent' })
+  return { ...line, spans }
 }
 
 /** Draw the scrollbar thumb in the rightmost column. */

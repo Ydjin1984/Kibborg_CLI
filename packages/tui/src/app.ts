@@ -421,14 +421,17 @@ export function createApp(options: AppOptions): App {
       tick,
       hyperlinks: true,
       version: log.version,
-      ...(selectedEntry === null ? {} : { selectedId: selectedEntry }),
       ...(welcome === null ? {} : { leading: renderWelcome({ ...welcome, tick }, logWidth, layout.log.h) }),
     })
     transcript = body
     transcriptHeight = body.total
     viewportHeight = layout.log.h
     if (follow) offset = clampScroll(Number.MAX_SAFE_INTEGER, transcriptHeight, viewportHeight)
-    const view = drawLogView(buf, layout.log, body, { offset, follow })
+    const view = drawLogView(buf, layout.log, body, {
+      offset,
+      follow,
+      ...(selectedEntry === null ? {} : { selectedId: selectedEntry }),
+    })
     offset = view.offset
     follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
     // Remember which frame row holds a row that reacts to a click, so the click can

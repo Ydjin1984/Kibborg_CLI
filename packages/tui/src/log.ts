@@ -239,13 +239,6 @@ export interface RenderOptions {
   /** Lines drawn above the transcript, such as the welcome screen. */
   readonly leading?: readonly StyledLine[]
   /**
-   * Entry the reader has moved to.
-   *
-   * The chosen entry carries a mark in its first column, which is what tells the
-   * user what Enter and `y` will act on.
-   */
-  readonly selectedId?: number
-  /**
    * Entry of the newest answer.
    *
    * The answer a user is reading is never condensed, while the answers above it
@@ -940,8 +933,7 @@ function renderEntryCached(entry: LogEntry, width: number, options: RenderOption
   const lead = depth > 1 ? BRANCH_INDENT.repeat(Math.min(depth - 1, MAX_BRANCH_DEPTH)) : ''
   const answerRole = entry.id === options.lastAnswerId ? 'last' : 'past'
   const stamps = options.timestamps === false ? 'plain' : 'time'
-  const chosen = options.selectedId === entry.id ? 'sel' : 'plain'
-  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}|${stamps}|${chosen}`
+  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}|${stamps}`
   const cached = ENTRY_CACHE.get(entry.id)
   if (cached !== undefined && cached.key === key) return cached.lines
   // A row inside a delegation sits between the walls of its box; the walls take
@@ -960,28 +952,13 @@ function renderEntryCached(entry: LogEntry, width: number, options: RenderOption
         ...line,
         spans: [...spans, { text: `${' '.repeat(Math.max(0, width - used - 3))}  │`, token: 'Subtle' as TokenName }],
       }
-    })).map(line => (chosen === 'sel' ? markSelected(line) : line))
+    // Every row states the entry it came from. The view uses that to mark the entry
+    // the reader chose, which keeps the mark out of the rendered transcript and out
+    // of its cache: moving the selection repaints a frame, not the whole log.
+    })).map(line => (line.entryId === undefined ? { ...line, entryId: entry.id } : line))
   ENTRY_CACHE.set(entry.id, { lines, key })
   trimEntryCache()
   return lines
-}
-
-/**
- * Put the reader's mark in the first column of a chosen entry's row.
- *
- * The row keeps its width: the mark replaces the columns the indent already used,
- * so nothing shifts when the selection moves.
- * @param line - one row of the chosen entry.
- * @returns the row with the mark.
- */
-function markSelected(line: StyledLine): StyledLine {
-  const spans = [...line.spans]
-  const first = spans[0]
-  if (first === undefined) return { ...line, spans: [{ text: '▌', token: 'Accent' }] }
-  if (first.text.startsWith('  ')) spans[0] = { ...first, text: `▌ ${first.text.slice(2)}` }
-  else if (first.text.startsWith(' ')) spans[0] = { ...first, text: `▌${first.text.slice(1)}` }
-  else spans.unshift({ text: '▌', token: 'Accent' })
-  return { ...line, spans }
 }
 
 /**
@@ -1056,7 +1033,6 @@ let transcriptCache: {
   readonly tick: number
   readonly leading: readonly StyledLine[] | undefined
   readonly lastAnswerId: number | undefined
-  readonly selectedId: number | undefined
   readonly state: TranscriptState
 } | undefined
 
@@ -1096,8 +1072,7 @@ export function renderTranscript(
     && cached.hyperlinks === hyperlinks
     && cached.tick === tick
     && cached.leading === options.leading
-    && cached.lastAnswerId === options.lastAnswerId
-    && cached.selectedId === options.selectedId) {
+    && cached.lastAnswerId === options.lastAnswerId) {
     return cached.state
   }
   const state: TranscriptState = cached?.state ?? { parts: [], tops: [], entryTops: new Map(), total: 0 }
@@ -1182,7 +1157,7 @@ export function renderTranscript(
   if (ENTRY_CACHE.size > live.size) {
     for (const id of [...ENTRY_CACHE.keys()]) if (!live.has(id)) ENTRY_CACHE.delete(id)
   }
-  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, lastAnswerId: options.lastAnswerId, selectedId: options.selectedId, state }
+  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, lastAnswerId: options.lastAnswerId, state }
   return state
 }
 
