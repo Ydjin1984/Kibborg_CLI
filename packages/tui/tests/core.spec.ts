@@ -4,7 +4,7 @@ import { detectCaps } from '../src/screen.ts'
 import { drawBox, dashedLine, boxWidths } from '../src/box.ts'
 import { densityFor, computeLayout } from '../src/layout.ts'
 import { spinnerFrame, bandWave, progressBar, elapsedLabel, createTicker } from '../src/anim.ts'
-import { plainPalette, trueColorPalette } from '../src/tokens.ts'
+import { plainPalette, terminalPalette, trueColorPalette } from '../src/tokens.ts'
 import { displayWidth } from '../src/width.ts'
 
 describe('framebuffer', () => {
@@ -65,9 +65,39 @@ describe('framebuffer', () => {
   it('resolves a token into the SGR prefix stored in the cell', () => {
     const buffer = createBuffer(4, 1, trueColorPalette())
     buffer.put(0, 0, 'A', 'Accent')
-    expect(buffer.get(0, 0).sgr).toBe('\u001B[38;2;92;225;230m')
+    // The accent is the palette's single attention color; the test reads the values
+    // the palette declares rather than hard-coding a shade.
+    expect(buffer.get(0, 0).sgr).toBe(trueColorPalette().sgr('Accent'))
+    expect(buffer.get(0, 0).sgr).toMatch(/^\u001B\[38;2;\d+;\d+;\d+m$/u)
     buffer.put(1, 0, 'B', 'Error', { bold: true })
-    expect(buffer.get(1, 0).sgr).toBe('\u001B[38;2;255;92;122;1m')
+    expect(buffer.get(1, 0).sgr).toBe('\u001B[38;2;226;116;133;1m')
+  })
+
+  it('keeps the terminal palette free of colors', () => {
+    const palette = terminalPalette()
+    // The profile owns the colors: only attributes travel.
+    expect(palette.sgr('Accent')).toBe('')
+    expect(palette.sgr('Error', { bold: true })).toBe('\u001B[1m')
+    expect(palette.paint('текст', 'Error')).toBe('текст')
+    expect(palette.paint('текст', 'Error', { dim: true })).toBe('\u001B[2mтекст\u001B[0m')
+  })
+
+  it('spends color on one accent and on state, not on agents', () => {
+    const palette = trueColorPalette()
+    // Every agent shares the neutral text color...
+    for (const token of ['AgentKibborg', 'AgentDeepSeek', 'AgentGrok', 'AgentFlash', 'AgentCodex', 'AgentClaude'] as const) {
+      expect(palette.sgr(token)).toBe(palette.sgr('Text'))
+    }
+    // ...and what a row reports is carried by words, so the action tokens recede.
+    for (const token of ['ActionThink', 'ActionTool', 'ActionFile', 'ActionDelegate'] as const) {
+      expect(palette.sgr(token)).toBe(palette.sgr('Muted'))
+    }
+    // The outcomes keep colors of their own, and they differ from the accent.
+    expect(palette.sgr('Success')).not.toBe(palette.sgr('Error'))
+    expect(palette.sgr('DiffAdd')).toBe(palette.sgr('Success'))
+    expect(palette.sgr('Accent')).not.toBe(palette.sgr('Text'))
+    // Borders recede behind the text they frame.
+    expect(palette.sgr('Subtle')).not.toBe(palette.sgr('Text'))
   })
 
   it('stores no color in a plain buffer', () => {
@@ -123,7 +153,7 @@ describe('framebuffer diff', () => {
     const before = createBuffer(4, 1, trueColorPalette())
     const after = copyBuffer(before)
     after.put(0, 0, 'A', 'Success')
-    expect(diffBuffers(before, after)).toContain('\u001B[38;2;61;220;151m')
+    expect(diffBuffers(before, after)).toContain(trueColorPalette().sgr('Success'))
   })
 })
 

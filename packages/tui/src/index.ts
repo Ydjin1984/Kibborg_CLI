@@ -9,7 +9,7 @@
  */
 
 export type { Palette, TokenName, TokenStyle } from './tokens.ts'
-export { agentToken, fallbackPalette, paletteFor, paletteForTheme, plainPalette, trueColorPalette } from './tokens.ts'
+export { agentToken, fallbackPalette, paletteFor, paletteForTheme, plainPalette, terminalPalette, trueColorPalette } from './tokens.ts'
 
 export { displayWidth, padLeft, padRight, takeHeadWidth, takeTailWidth } from './width.ts'
 

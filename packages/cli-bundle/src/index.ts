@@ -22,14 +22,14 @@ export const name = 'kibborg-cli'
 export const inject: string[] = ['settings']
 
 /** Theme presets the terminal surface ships (`UI.md` §13). */
-export const KIBBORG_THEMES = ['ice', 'mono'] as const
+export const KIBBORG_THEMES = ['ice', 'terminal', 'mono'] as const
 
 /** Screen modes the terminal surface ships. */
 export const KIBBORG_SCREENS = ['inline', 'fullscreen', 'minimal'] as const
 
 /** Behaviour the terminal surface reads from its settings section. */
 export interface KibborgCliSettings {
-  /** Color preset: `ice` keeps the `UI.md` palette, `mono` prints without color. */
+  /** Color preset: `ice` is the design palette, `terminal` keeps the profile's, `mono` prints without color. */
   readonly theme: (typeof KIBBORG_THEMES)[number]
   /** Print the time a message was written beside it. */
   readonly timestamps: boolean

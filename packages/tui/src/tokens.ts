@@ -75,40 +75,46 @@ export interface Palette {
 /** Escape character starting every ANSI sequence this module emits. */
 const ESC = '\u001B'
 
-/** True-color values for `UI.md` §2. */
+/** True-color values of the GrokNight palette. */
 const TRUE_COLOR: Readonly<Record<TokenName, readonly [number, number, number]>> = {
-  Accent: [92, 225, 230],
-  Shimmer: [154, 240, 243],
-  Success: [61, 220, 151],
-  Warn: [245, 185, 66],
-  Error: [255, 92, 122],
-  Muted: [122, 132, 148],
-  Subtle: [58, 66, 80],
-  Text: [214, 222, 235],
-  Surface: [22, 27, 34],
-  BashPink: [232, 121, 249],
-  PermLav: [165, 180, 252],
-  DiffAdd: [87, 214, 138],
-  DiffRemove: [240, 113, 133],
-  Orange: [255, 158, 74],
-  Answer: [226, 232, 240],
-  AgentKibborg: [92, 225, 230],
-  AgentDeepSeek: [76, 141, 255],
-  AgentGrok: [192, 132, 252],
-  AgentFlash: [255, 158, 74],
-  AgentCodex: [87, 214, 138],
-  AgentClaude: [232, 160, 122],
-  RoleBadge: [139, 147, 161],
-  ActionThink: [122, 132, 148],
-  ActionTool: [92, 225, 230],
-  ActionFile: [165, 180, 252],
-  ActionDelegate: [232, 121, 249],
+  // One accent carries attention: the prompt, the chosen row, a link. Everything
+  // else is neutral text, a border, or one of the three semantic states.
+  Accent: [122, 162, 247],
+  Shimmer: [153, 186, 255],
+  Success: [126, 201, 154],
+  Warn: [214, 178, 106],
+  Error: [226, 116, 133],
+  Muted: [138, 143, 152],
+  Subtle: [70, 75, 85],
+  Text: [220, 223, 228],
+  Surface: [22, 24, 28],
+  BashPink: [206, 145, 190],
+  PermLav: [166, 173, 200],
+  DiffAdd: [126, 201, 154],
+  DiffRemove: [226, 116, 133],
+  Orange: [214, 178, 106],
+  Answer: [226, 230, 236],
+  // Agents are told apart by name, model, and role, not by color: six hues made the
+  // transcript look like a chart, and the same model changed color between builds.
+  AgentKibborg: [220, 223, 228],
+  AgentDeepSeek: [220, 223, 228],
+  AgentGrok: [220, 223, 228],
+  AgentFlash: [220, 223, 228],
+  AgentCodex: [220, 223, 228],
+  AgentClaude: [220, 223, 228],
+  RoleBadge: [138, 143, 152],
+  // What a row reports is stated by its glyph and its words; color stays with the
+  // outcome, so a failed call is the only loud thing on the line.
+  ActionThink: [138, 143, 152],
+  ActionTool: [138, 143, 152],
+  ActionFile: [138, 143, 152],
+  ActionDelegate: [138, 143, 152],
 }
 
 /** 16-color fallbacks, preserving the meaning of each token. */
 const FALLBACK: Readonly<Record<TokenName, string>> = {
-  Accent: '96',
-  Shimmer: '96',
+  Accent: '94',
+  Shimmer: '94',
   Success: '92',
   Warn: '93',
   Error: '91',
@@ -122,68 +128,57 @@ const FALLBACK: Readonly<Record<TokenName, string>> = {
   Orange: '33',
   Answer: '97',
   PermLav: '94',
-  AgentKibborg: '96',
-  AgentDeepSeek: '94',
-  AgentGrok: '95',
-  AgentFlash: '33',
-  AgentCodex: '92',
-  AgentClaude: '33',
+  AgentKibborg: '97',
+  AgentDeepSeek: '97',
+  AgentGrok: '97',
+  AgentFlash: '97',
+  AgentCodex: '97',
+  AgentClaude: '97',
   RoleBadge: '90',
   ActionThink: '90',
-  ActionTool: '96',
-  ActionFile: '94',
-  ActionDelegate: '95',
+  ActionTool: '90',
+  ActionFile: '90',
+  ActionDelegate: '90',
 }
 
 /** No-op palette for plain output. */
 export const plainPalette: Palette = { paint: text => text, sgr: () => '' }
 
 /**
- * Colors an agent can be drawn in when nothing identifies it.
+ * Palette that keeps the terminal's own colors.
  *
- * Known agents get a fixed color from {@link AGENT_NAMES}, so the same product
- * reads the same way in every session; an unknown one is placed by its name.
+ * No color is emitted at all: text inherits the profile's foreground, and only the
+ * bold and dim attributes carry emphasis. A terminal whose palette is already
+ * chosen — a themed emulator, a color scheme the user likes — then shows Kibborg
+ * in it instead of fighting it.
+ * @returns the palette for the `terminal` theme.
  */
-const AGENT_TOKENS: readonly TokenName[] = [
-  'AgentKibborg',
-  'AgentDeepSeek',
-  'AgentGrok',
-  'AgentFlash',
-  'AgentCodex',
-  'AgentClaude',
-]
-
-/** Fixed color of the agents a deployment is likely to name. */
-const AGENT_NAMES: readonly (readonly [RegExp, TokenName])[] = [
-  // The executor route is checked before the product name: `kibborg/Kibborg_Flash`
-  // is the local executor, and it has to read as its own agent, not as the head.
-  [/flash/i, 'AgentFlash'],
-  [/grok/i, 'AgentGrok'],
-  [/deepseek/i, 'AgentDeepSeek'],
-  [/kibborg/i, 'AgentKibborg'],
-  [/codex|openai|gpt/i, 'AgentCodex'],
-  [/claude|anthropic/i, 'AgentClaude'],
-]
+export function terminalPalette(): Palette {
+  const sgr = (_token: TokenName, style?: TokenStyle): string => {
+    const codes = attributeCodes(style)
+    return codes.length === 0 ? '' : `${ESC}[${codes.join(';')}m`
+  }
+  return {
+    sgr,
+    paint: (text, token, style) => {
+      const prefix = sgr(token, style)
+      return prefix === '' ? text : `${prefix}${text}${ESC}[0m`
+    },
+  }
+}
 
 /**
  * Pick the color of one agent.
  *
- * The same name always maps to the same color, so a transcript stays readable
- * while agents come and go, and two agents in one run rarely share a color. The
- * color answers "who", never "what": roles and actions have their own tokens.
- * @param seed - the agent's identity, normally its model or label.
+ * Every agent reads as ordinary text: who is working is stated by its name, its
+ * model, and its role, and the transcript stays legible when several agents share
+ * a turn. Color is kept for state — success, warning, failure, a change — so a
+ * glance finds the outcome rather than the speaker.
+ * @param seed - the agent's identity; accepted so callers need not change.
  * @returns the token to draw that agent in.
  */
 export function agentToken(seed: string): TokenName {
-  for (const [pattern, token] of AGENT_NAMES) {
-    if (pattern.test(seed)) return token
-  }
-  let hash = 0
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) | 0
-  }
-  const slot = Math.abs(hash) % AGENT_TOKENS.length
-  return AGENT_TOKENS[slot] as TokenName
+  return seed === '' ? 'Muted' : 'Text'
 }
 
 /** Bold/dim/underline parameters, appended after the color parameters of one SGR sequence. */
@@ -243,8 +238,9 @@ export function paletteFor(
  *
  * `mono` prints without color at all — the shape of the output is then carried
  * by the glyphs and indentation alone, which is what a monochrome terminal or a
- * transcript for a bug report wants. It is a palette rather than a separate
- * render path, so every widget keeps painting tokens either way.
+ * transcript for a bug report wants. `terminal` keeps the profile's own colors and
+ * emits only attributes. It is a palette rather than a separate render path, so
+ * every widget keeps painting tokens either way.
  * @param theme - the preset name from the surface's settings section.
  * @param environment - the environment to read.
  * @param interactive - whether output is a terminal.
@@ -255,5 +251,7 @@ export function paletteForTheme(
   environment: NodeJS.ProcessEnv = process.env,
   interactive: boolean = process.stdout.isTTY === true,
 ): Palette {
-  return theme === 'mono' ? plainPalette : paletteFor(environment, interactive)
+  if (theme === 'mono') return plainPalette
+  if (theme === 'terminal') return terminalPalette()
+  return paletteFor(environment, interactive)
 }

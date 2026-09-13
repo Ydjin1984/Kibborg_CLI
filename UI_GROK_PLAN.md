@@ -73,9 +73,9 @@
 
 | ID | Статус | Задача | Артефакт | Проверка |
 |---|---|---|---|---|
-| 3.1 | todo | Палитра GrokNight: нейтральная база, приглушённые границы и скроллбар, один акцент | `packages/tui/src/tokens.ts` | тест токенов и кадр |
-| 3.2 | todo | Убрать цвет на каждого агента: имя — обычным текстом, роль — приглушённо, цвет только на семантику (успех/ошибка/diff) | `packages/tui/src/tokens.ts`, `log.ts` | тест: два агента не различаются цветом, ошибка отличается |
-| 3.3 | todo | Тема `terminal` (без фонов, цвета из профиля терминала) как опция | `packages/tui/src/tokens.ts`, `packages/client-node/src/surface-settings.ts` | тест настройки темы |
+| 3.1 | **done** | Палитра GrokNight: нейтральная база, приглушённые границы и скроллбар, один акцент | `packages/tui/src/tokens.ts` | `core.spec.ts` (один акцент, границы приглушены); кадр |
+| 3.2 | **done** | Убран цвет на каждого агента: имя — обычным текстом, роль — приглушённо, цвет только на семантику (успех/ошибка/diff), токены действий приглушены | `packages/tui/src/tokens.ts`, `log.ts` | `agents.spec.ts`, `core.spec.ts` |
+| 3.3 | **done** | Тема `terminal` (без цветов, только атрибуты; цвета из профиля терминала) | `packages/tui/src/tokens.ts`, `packages/client-node/src/surface-settings.ts`, `packages/cli-bundle/src/index.ts` | `core.spec.ts`; README |
 
 ---
 

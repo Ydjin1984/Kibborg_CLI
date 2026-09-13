@@ -51,9 +51,12 @@ describe('agent rows', () => {
     expect(row.endsWith('│')).toBe(true)
   })
 
-  it('colors two agents differently when their names differ', () => {
-    expect(agentToken('KIBORG')).toBe(agentToken('KIBORG'))
-    expect(typeof agentToken('Kibborg_Flash')).toBe('string')
+  it('draws two agents in the same neutral color, keeping color for state', () => {
+    // Who is working is stated by name, model, and role: a palette per agent made
+    // the transcript look like a chart and told the reader nothing about the work.
+    expect(agentToken('KIBORG')).toBe('Text')
+    expect(agentToken('Kibborg_Flash')).toBe('Text')
+    expect(agentToken('')).toBe('Muted')
   })
 
   it('settles a call of each agent in its own row', () => {

@@ -16,8 +16,8 @@ export const SURFACE_NAMESPACE = 'kibborg-cli'
 
 /** Behaviour the surface reads before it draws anything. */
 export interface SurfaceSettings {
-  /** Color preset: `ice` keeps the design palette, `mono` prints without color. */
-  readonly theme: 'ice' | 'mono'
+  /** Color preset: `ice` is the design palette, `terminal` keeps the profile's colors, `mono` prints without color. */
+  readonly theme: 'ice' | 'terminal' | 'mono'
   /** Print the time a message was written beside it. */
   readonly timestamps: boolean
   /** Enter breaks the line and Ctrl+J submits, instead of the reverse. */
@@ -53,7 +53,7 @@ export async function readSurfaceSettings(client: IApiClient): Promise<SurfaceSe
   if (section === undefined || typeof section.value !== 'object' || section.value === null) return SURFACE_DEFAULTS
   const value = section.value as Record<string, unknown>
   return {
-    theme: pick(value, 'theme', SURFACE_DEFAULTS.theme, candidate => candidate === 'ice' || candidate === 'mono'),
+    theme: pick(value, 'theme', SURFACE_DEFAULTS.theme, candidate => candidate === 'ice' || candidate === 'terminal' || candidate === 'mono'),
     timestamps: pick(value, 'timestamps', SURFACE_DEFAULTS.timestamps, candidate => typeof candidate === 'boolean'),
     multiline: pick(value, 'multiline', SURFACE_DEFAULTS.multiline, candidate => typeof candidate === 'boolean'),
     screen: pick(value, 'screen', SURFACE_DEFAULTS.screen,
