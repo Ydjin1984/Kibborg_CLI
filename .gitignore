@@ -26,3 +26,8 @@ coverage/
 Thumbs.db
 tests/ref-*.txt
 tests/grok-sandbox.txt
+
+# Local scratch: a hand-written launcher and files made while trying the CLI.
+# They belong to the machine that made them, not to the repository.
+/run_kibborg.ps1
+/test.txt
