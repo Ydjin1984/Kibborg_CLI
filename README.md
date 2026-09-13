@@ -636,6 +636,7 @@ Kibborg_CLI/
 | [ARCHITECTURE.md](ARCHITECTURE.md) | слои, поток данных, решения, контракт прерывания |
 | [TUI.md](TUI.md) | дизайн-спека интерфейса: экраны, лента, палитра, токены |
 | [TASKS.md](TASKS.md) | реестр фаз K0…K8 и история исправлений |
+| [UI_GROK_PLAN.md](UI_GROK_PLAN.md) | план переработки интерфейса по образцу Grok CLI: факты по четырём CLI, этапы 0–5, артефакты и проверки |
 | [CHECKLIST.md](CHECKLIST.md) | приёмка по фазам и матрица возможностей |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | симптом → причина → действие |
 | [PLAN.md](PLAN.md) | исходная спецификация продукта |
