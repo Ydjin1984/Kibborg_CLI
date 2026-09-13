@@ -32,7 +32,7 @@ import { exportSessionLog } from './export-session.ts'
 import { readIntent } from './intent.ts'
 import { createHeadlessWriter, parseStructured, type OutputFormat } from './headless.ts'
 import { runFullscreen } from './fullscreen.ts'
-import { openPanel, type PanelSession, type PanelState } from './panel.ts'
+import { openPanel, permissionModes, type PanelSession, type PanelState } from './panel.ts'
 import { runRegistryCommand } from './registry-command.ts'
 import { runMcpCommand } from './mcp-command.ts'
 import { runSkillsCommand } from './skills-command.ts'
@@ -400,6 +400,9 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
       sources,
       fillSources,
       panel,
+      // The presets the composition mounts: the picker and Shift+Tab walk this
+      // list, so neither can offer a mode the host would refuse.
+      permissionModes: permissionModes(ctx),
       onCommand: (line, write) => routeCommand(line, {
         ctx,
         client,

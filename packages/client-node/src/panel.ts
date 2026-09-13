@@ -86,6 +86,19 @@ function permissionNames(ctx: Context): readonly string[] {
   return presets?.names ?? []
 }
 
+/**
+ * The permission presets this composition offers.
+ *
+ * The surface lists and cycles them, so the names come from the host rather than
+ * from a guess in the client: a preset the deployment does not mount would
+ * otherwise be offered and refused.
+ * @param ctx - host context carrying the permission service.
+ * @returns the preset names, in the order the service declares them.
+ */
+export function permissionModes(ctx: Context): readonly string[] {
+  return permissionNames(ctx)
+}
+
 /** Build every tab from the registries; the renderer draws only the active one. */
 function tabsOf(data: PanelData): readonly PanelTab[] {
   const skillRows = columns(data.skills.map(skill => ({

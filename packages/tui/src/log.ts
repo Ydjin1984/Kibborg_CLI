@@ -810,14 +810,29 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
         {},
       )
     case 'notice':
-    case 'warn':
-      return compose(
+    case 'warn': {
+      const lines = compose(
         [{ text: INDENT, token: 'Muted' }, { text: '⚠', token: 'Warn' }, { text: '  ', token: 'Muted' }],
         entry.text,
         'Warn',
         width,
         {},
       )
+      // A notice may carry a list — the key help most of all — and it is drawn as
+      // the same continuation block a tool entry uses.
+      for (const row of entry.detail ?? []) {
+        for (const wrapped of wrapText(row, Math.max(1, width - DETAIL_INDENT.length - 4))) {
+          lines.push({
+            spans: [
+              { text: DETAIL_INDENT, token: 'Muted' },
+              { text: '⎿  ', token: 'Subtle' },
+              { text: wrapped, token: 'Muted' },
+            ],
+          })
+        }
+      }
+      return lines
+    }
     case 'error':
       return compose(
         [{ text: INDENT, token: 'Muted' }, { text: '✗', token: 'Error' }, { text: '  ', token: 'Muted' }],

@@ -34,6 +34,8 @@ export type KeyEvent =
   | { readonly kind: 'ctrl-l' }
   | { readonly kind: 'ctrl-o' }
   | { readonly kind: 'ctrl-u' }
+  /** The key list: what every binding of the surface does. */
+  | { readonly kind: 'ctrl-x' }
   | { readonly kind: 'mouse'; readonly event: MouseEvent }
   | { readonly kind: 'paste'; readonly text: string }
 
@@ -117,6 +119,7 @@ function decodeWin32(fields: readonly number[]): KeyEvent | undefined {
     if (letter === 'l') return { kind: 'ctrl-l' }
     if (letter === 'o') return { kind: 'ctrl-o' }
     if (letter === 'u') return { kind: 'ctrl-u' }
+    if (letter === 'x') return { kind: 'ctrl-x' }
   }
   // Shift changes the character a key produces (`a` → `A`, `1` → `!`) and the
   // surface already receives the resulting code point, so a shifted letter must
@@ -214,6 +217,7 @@ export function parseKeys(chunk: string): KeyParseResult {
       case 12: keys.push({ kind: 'ctrl-l' }); break
       case 15: keys.push({ kind: 'ctrl-o' }); break
       case 21: keys.push({ kind: 'ctrl-u' }); break
+      case 24: keys.push({ kind: 'ctrl-x' }); break
       default:
         if (code >= 32) keys.push({ kind: 'char', text: character })
         break

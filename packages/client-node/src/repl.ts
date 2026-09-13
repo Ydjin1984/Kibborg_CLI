@@ -70,6 +70,24 @@ const ANSI_PATTERN = /\u001B\[[0-9;]*[A-Za-z]/gu
 /** How often the work row in the transcript is refreshed while a turn runs. */
 const WORK_ROW_MS = 250
 
+/** Permission presets `Shift+Tab` cycles through when the host declares none. */
+const FALLBACK_PERMISSION_MODES: readonly string[] = ['read-only', 'workspace-write', 'danger-full-access']
+
+/** Key list `Ctrl+x` prints into the transcript. */
+const KEY_HELP: readonly string[] = [
+  'Enter — отправить, применить пункт или развернуть выбранную запись',
+  'Shift+Enter / Ctrl+J — новая строка ввода; окно растёт до 8 строк',
+  '↑ / ↓ — выбор записи ленты (на пустом вводе), история ввода, выбор в окне вопроса',
+  'Tab — перевести фокус между лентой и вводом; с черновиком — дополнить',
+  'Shift+Tab — сменить режим разрешений, режим виден в нижней границе поля',
+  'h / l — свернуть и развернуть выбранную запись',
+  'y — скопировать выбранную запись вместе с аргументами и выводом',
+  'PgUp / PgDn — прокрутка на экран, колесо — на строку',
+  'Ctrl+C — прервать ход; вне хода очистить черновик, второй раз выйти',
+  'Ctrl+D — выйти, Ctrl+O — панель данных, Ctrl+x — эта справка',
+  'Esc — закрыть список или вопрос; ход не прерывает',
+]
+
 /** Token usage the host reports for one step of a turn. */
 interface Usage {
   /** Prompt tokens counted for the step. */
@@ -114,6 +132,14 @@ export interface ReplOptions {
   readonly fillSources?: () => Promise<void>
   /** Runs a slash command; the local router owns its own lines and delegates the rest. */
   readonly onCommand: (line: string, write: (chunk: string) => void) => Promise<CommandOutcome>
+  /**
+   * Permission presets this composition mounts.
+   *
+   * The picker and `Shift+Tab` both walk this list, so the names come from the
+   * host: a preset the deployment does not mount is never offered, and the badge
+   * never claims a mode the host would refuse.
+   */
+  readonly permissionModes?: readonly string[]
   /** The tabs modal: how to read its registries and what to act through. */
   readonly panel: {
     /** Read every registry and return the modal's opening state. */
@@ -334,6 +360,29 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       overlay = pendingOverlay()
       drawZone()
     })
+
+  /**
+   * Move to the next permission preset.
+   *
+   * The preset is applied through the same host command the picker uses, and the
+   * badge in the composer's border follows it: what the next tool call may do is
+   * one keystroke away, and the surface never claims a mode the host refused.
+   */
+  const cyclePermission = (): void => {
+    const modes = options.permissionModes?.length === 0 || options.permissionModes === undefined
+      ? FALLBACK_PERMISSION_MODES
+      : options.permissionModes
+    const current = modes.indexOf(options.state.mode)
+    const next = modes[(current + 1 + modes.length) % modes.length] ?? modes[0] ?? 'read-only'
+    void options.onCommand(`/permission ${next}`, emit).then(outcome => {
+      if (!outcome.ok) {
+        emit(`  ${outcome.error ?? 'режим не изменён'}\n`)
+        return
+      }
+      options.state.mode = next
+      announce(`режим: ${next}`)
+    })
+  }
 
   /**
    * Answer the open question with a choice or with typed text.
@@ -700,12 +749,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       })
     },
     '/permission': async () => {
-      const items = [
-        { group: 'MODE', name: 'Ask', desc: 'только чтение' },
-        { group: 'MODE', name: 'Plan', desc: 'план без записи' },
-        { group: 'MODE', name: 'Agent', desc: 'запись с подтверждением' },
-        { group: 'MODE', name: 'YOLO', desc: 'подтверждать всё' },
-      ]
+      // The list is what the host mounts, not a guess: a deployment that offers
+      // three presets must not be shown a fourth.
+      const modes = options.permissionModes?.length === 0 || options.permissionModes === undefined
+        ? FALLBACK_PERMISSION_MODES
+        : options.permissionModes
+      const items = modes.map(name => ({ group: 'MODE', name, desc: '' }))
       chooseFrom(items, 'режим', async name => {
         const outcome = await options.onCommand(`/permission ${name}`, emit)
         if (!outcome.ok) {
@@ -1178,6 +1227,22 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             return
           }
           return
+        case 'ctrl-x': {
+          // The key list goes into the transcript rather than a modal: it stays
+          // readable while the user tries the keys, and it can be copied or scrolled.
+          if (app !== undefined) {
+            app.log.append({ kind: 'notice', text: 'Клавиши Kibborg', detail: [...KEY_HELP] })
+            return
+          }
+          for (const line of KEY_HELP) write(`  ${line}\n`)
+          return
+        }
+        case 'shift-tab': {
+          // Modes cycle in place, the way the reference CLIs switch approval: one
+          // keystroke changes what the next tool call is allowed to do.
+          cyclePermission()
+          return
+        }
         case 'escape':
           // Esc never cancels a turn: it reads the transcript instead, and the
           // composer's legend already names the key that does cancel. A stray Esc

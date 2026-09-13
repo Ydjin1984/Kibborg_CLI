@@ -26,6 +26,9 @@ describe('parseKeys', () => {
     expect(parseKeys('\u0004').keys).toEqual([{ kind: 'ctrl-d' }])
     expect(parseKeys('\u007F').keys).toEqual([{ kind: 'backspace' }])
     expect(parseKeys('\t').keys).toEqual([{ kind: 'tab' }])
+    // Ctrl+X arrives either as the control byte or, in Windows input mode, as the
+    // letter with the control modifier set.
+    expect(parseKeys('\u0018').keys).toEqual([{ kind: 'ctrl-x' }])
   })
 
   it('decodes arrow, home, end and delete sequences', () => {

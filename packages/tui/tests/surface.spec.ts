@@ -851,6 +851,37 @@ describe('fullscreen app', () => {
     app.stop()
   })
 
+  it('moves the focus between the transcript and the input with Tab', () => {
+    const { stream, written } = fakeStream(90, 20)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    app.log.append({ kind: 'assistant', text: 'первый ответ' })
+    app.log.append({ kind: 'assistant', text: 'второй ответ' })
+    const handled: string[] = []
+    app.onUnhandled(key => { handled.push(key.kind) })
+    app.start()
+    written.length = 0
+    // On an empty draft the first Tab takes the transcript, the second gives the
+    // input back; a draft of its own keeps Tab for completion.
+    app.handleKey({ kind: 'tab' })
+    expect(written.join('')).toContain('▌')
+    expect(handled).toEqual([])
+    written.length = 0
+    app.handleKey({ kind: 'tab' })
+    expect(written.join('')).not.toContain('▌')
+    app.setDraft('/mo')
+    app.handleKey({ kind: 'tab' })
+    expect(handled).toEqual(['tab'])
+    app.stop()
+  })
+
   it('hides a long tool output behind a row that expands it on a click', () => {
     const { stream, written } = fakeStream(90, 24)
     const app = createApp({

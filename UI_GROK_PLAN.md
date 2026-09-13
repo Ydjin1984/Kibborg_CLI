@@ -83,10 +83,10 @@
 
 | ID | Статус | Задача | Артефакт | Проверка |
 |---|---|---|---|---|
-| 4.1 | **частично** | `↑↓` — выбор записи ленты, `h`/`l` — свернуть/развернуть, `y` — копировать блок сделаны; `Tab`-фокус между лентой и вводом ещё нет | `packages/tui/src/app.ts`, `packages/client-node/src/repl.ts` | `surface.spec.ts`; живой кадр |
-| 4.2 | **done** | `Ctrl+C` отменяет ход; `Esc` — нет: читает ленту и говорит, чем прервать | `packages/client-node/src/repl.ts` | живой кадр во время хода; тест клавиш — 4.1 |
-| 4.3 | todo | `Shift+Tab` — смена режима, режим виден в статусе | `packages/client-node/src/repl.ts` | тест смены режима |
-| 4.4 | todo | `Ctrl+x` — справка по клавишам | `packages/client-node/src/repl.ts` | тест открытия справки |
+| 4.1 | **done** | `Tab` — фокус между лентой и вводом; `↑↓` — выбор записи; `h`/`l` — свернуть/развернуть; `y` — копировать блок | `packages/tui/src/app.ts`, `packages/client-node/src/repl.ts` | `surface.spec.ts`; живой кадр |
+| 4.2 | **done** | `Ctrl+C` отменяет ход; `Esc` — нет: читает ленту и говорит, чем прервать | `packages/client-node/src/repl.ts` | живой кадр во время хода |
+| 4.3 | **done** | `Shift+Tab` — смена режима разрешений; список пресетов берётся из сервиса хоста, режим виден в нижней границе поля | `packages/client-node/src/repl.ts`, `panel.ts`, `index.ts` | живой кадр: `режим: read-only`, бейдж `read-only` |
+| 4.4 | **done** | `Ctrl+x` — справка по клавишам, печатается в ленту | `packages/tui/src/input.ts`, `packages/client-node/src/repl.ts` | `input.spec.ts`; живой кадр |
 
 ---
 

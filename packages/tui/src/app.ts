@@ -774,6 +774,32 @@ export function createApp(options: AppOptions): App {
           moveSelection(key.kind === 'up' ? -1 : 1)
           return
         }
+        case 'tab': {
+          // A modal owns Tab while it is open: the tabs of a panel are exactly what
+          // the key steps through there.
+          if (dialog !== null) {
+            unhandled?.(key)
+            return
+          }
+          // Tab moves the focus between the transcript and the input, the way the
+          // reference CLIs do: on an empty draft it picks the newest entry, and a
+          // second press gives the input back. A draft of its own keeps Tab for
+          // completion, which is what the loop behind this surface answers.
+          if (draft !== '') {
+            leaveWelcome()
+            unhandled?.(key)
+            return
+          }
+          leaveWelcome()
+          if (selectedEntry === null) {
+            moveSelection(-1)
+            return
+          }
+          selectedEntry = null
+          follow = true
+          scrollBy(Number.MAX_SAFE_INTEGER)
+          return
+        }
         case 'enter': {
           // Enter opens the entry the reader moved to. With no entry chosen the
           // key belongs to the loop, which submits the draft.
