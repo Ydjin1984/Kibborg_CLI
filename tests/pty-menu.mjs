@@ -99,7 +99,10 @@ await typeAndExpect('/model', 'НАВИГАЦИЯ', 'model picker opens with a w
 await keysAndExpect('\r', 'модель:', 'model picker applies the choice')
 await typeAndExpect('/model', 'модель', 'model picker opens again')
 await keysAndExpect('\u001B[A', 'НАВИГАЦИЯ', 'arrow reaches the back row')
-await keysAndExpect('\r', 'commands', 'back row returns to the command palette')
+// The row promises the command palette, so the frame must show the palette: its
+// group headings are what tells it apart from the model list it came from. A title
+// alone would not — an empty list keeps the title and prints «нет совпадений».
+await keysAndExpect('\r', 'SESSION', 'back row returns to the command palette')
 await keysAndExpect('\u001B', '@ файлы', 'palette closes after going back')
 
 term.write('\u0004')

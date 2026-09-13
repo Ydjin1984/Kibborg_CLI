@@ -591,6 +591,13 @@ node tests/frame-render.mjs --boot-ms 45000 --cols 120 --rows 40 \
 # → tests/frame.txt, tests/frame.html, tests/frame.raw.txt
 ```
 
+Сценарий, где клавиша относится к списку, который только что открыла команда, задаётся шагами — они выполняются в указанном порядке, а не «сначала все команды, потом все клавиши»:
+
+```bash
+node tests/frame-render.mjs --boot-ms 20000 --step "send:/model" \
+  --step "keys:\u001b[B" --step "keys:\r" --step "keys:\u001b[A" --step "keys:\r"
+```
+
 Ограничение среды: `conpty` в Windows не пропускает альтернативный экран, mouse-события и win32-input-mode. Такие вещи проверяются юнит-тестами, а не PTY.
 
 ---

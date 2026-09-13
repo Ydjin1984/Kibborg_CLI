@@ -672,13 +672,13 @@ export function createApp(options: AppOptions): App {
             if (named && !menuForced) break
             const item = menuView.items[menuView.selected]
             if (item === undefined) return
-            // The surface decides what a pick means: a typed palette completes
-            // the draft, a surface-opened list applies the choice directly.
+            // The pick belongs to the surface that owns the list: it applies the
+            // choice, closes the list, or opens another one. The flag drops before
+            // the callback runs and nothing here touches the state it leaves
+            // behind, so a callback that reopens the palette keeps its draft and a
+            // callback that opens a nested list keeps the row it preselected.
+            menuForced = false
             onAccept?.(item)
-            if (!menuForced) {
-              draft = ''
-              menuSelected = 0
-            }
             render()
             return
           }

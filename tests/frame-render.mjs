@@ -24,6 +24,7 @@ const flag = (name, fallback) => {
 }
 const sends = argv.reduce((all, value, index) => (value === '--send' ? [...all, argv[index + 1]] : all), [])
 const keys = argv.reduce((all, value, index) => (value === '--keys' ? [...all, argv[index + 1]] : all), [])
+const steps = argv.reduce((all, value, index) => (value === '--step' ? [...all, argv[index + 1]] : all), [])
 const bootMs = Number(flag('--boot-ms', '45000'))
 const cols = Number(flag('--cols', '120'))
 const rows = Number(flag('--rows', '34'))
@@ -172,6 +173,19 @@ if (readyAfter === null) {
 }
 await sleep(Math.max(0, deadline - Date.now()))
 await sleep(Number(flag('--settle-ms', '1500')))
+// `--step` runs sends and keys in one interleaved order, which a scenario needs when
+// a key belongs to a list a command just opened. Each step is either
+// `send:<line>` (written with Enter) or `keys:<json string>` (raw keystrokes).
+for (const step of steps) {
+  if (step.startsWith('send:')) {
+    term.write(`${step.slice('send:'.length)}\r`)
+    await sleep(Number(flag('--after-send-ms', '2500')))
+    continue
+  }
+  const raw = step.startsWith('keys:') ? step.slice('keys:'.length) : step
+  term.write(JSON.parse(`"${raw}"`))
+  await sleep(Number(flag('--after-key-ms', '1200')))
+}
 for (const send of sends) {
   term.write(`${send}\r`)
   // A submitted line may start a turn, so the wait after it is its own knob:

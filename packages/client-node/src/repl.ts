@@ -811,6 +811,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
 
   const submit = async (text: string): Promise<void> => {
     const task = text.trim()
+    if (process.env['KIBBORG_TRACE'] === '1') process.stderr.write(`kibborg[trace]: submit ${JSON.stringify(task)}\n`)
     if (task === '') return
     appendHistory(historyFile, task)
     history.push(task)
@@ -1080,6 +1081,11 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
 
     const handle = (key: KeyEvent): void => {
+      // Tracing is opt-in and goes to stderr, which the surface folds into the
+      // transcript: it answers "why did this key do nothing" without a debugger.
+      if (process.env['KIBBORG_TRACE'] === '1') {
+        process.stderr.write(`kibborg[trace]: key ${key.kind} busy=${String(commandBusy)} draft=${JSON.stringify(draft)} running=${String(running)}\n`)
+      }
       // A running command owns the keyboard: a second Enter while one is still
       // reading its registry would submit on top of it and print into a zone
       // the first command is about to redraw.
@@ -1373,16 +1379,20 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     if (app !== undefined) {
       app.setMenuItems(menuItems)
       app.onMenuAccept(item => {
-        // A list opened by a command reports the pick to that command; the
-        // palette the user typed runs the command it names.
+        if (process.env['KIBBORG_TRACE'] === '1') {
+          process.stderr.write(`kibborg[trace]: accept ${JSON.stringify(item.name)} pending=${String(choosing !== undefined)}\n`)
+        }
+        // A list opened by a command reports the pick to that command; the palette
+        // the user typed runs the command it names. Either way the list closes for
+        // good first: a pick inside a nested list must not leave that list on screen
+        // filtered by the line that opened it.
         const pending = choosing
+        closePalette()
         if (pending !== undefined) {
           choosing = undefined
-          app.closeMenu()
           void pending(item.name)
           return
         }
-        app.closeMenu()
         void submit(item.name)
       })
       app.onMenuClose(nested => {

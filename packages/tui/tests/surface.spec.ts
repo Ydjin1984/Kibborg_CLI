@@ -941,6 +941,62 @@ describe('fullscreen app', () => {
     app.stop()
   })
 
+  it('lets a pick callback close a list or reopen the palette it came from', () => {
+    const { stream, written } = fakeStream(90, 20)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const commands = [{ group: 'CMD', name: '/model', desc: 'switch model' }]
+    const models = [
+      { group: 'НАВИГАЦИЯ', name: '↩ назад', desc: 'вернуться к списку команд' },
+      { group: 'MODEL', name: 'deepseek-v4-pro', desc: 'deepseek-official' },
+    ]
+    app.setMenuItems(commands)
+    app.onMenuAccept(item => {
+      if (item.name === '↩ назад') {
+        // Returning one level up: the nested list closes and the command palette
+        // comes back with an empty filter, which is what the row promises.
+        app.closeMenu()
+        app.setMenuItems(commands)
+        app.setDraft('/')
+        return
+      }
+      if (item.name === '/model') {
+        app.setMenuItems(models)
+        app.openMenu(models, 'модель', 1)
+        return
+      }
+      // Picking a real model closes everything and leaves an empty composer.
+      app.closeMenu()
+      app.setDraft('')
+    })
+    app.start()
+    app.setDraft('/')
+    written.length = 0
+    app.handleKey({ kind: 'enter' })
+    expect(written.join('')).toContain('deepseek-v4-pro')
+    // The way back leads the list: one step up, then Enter.
+    app.handleKey({ kind: 'up' })
+    app.handleKey({ kind: 'enter' })
+    written.length = 0
+    // Enter now acts on the command palette: its first entry opens the model list
+    // again. Were the nested list still on screen — or left empty by a filter that
+    // matched nothing — this key would do nothing at all.
+    app.handleKey({ kind: 'enter' })
+    expect(written.join('')).toContain('deepseek-v4-pro')
+    // A real pick closes the list instead of leaving it half-open behind the pick.
+    written.length = 0
+    app.handleKey({ kind: 'enter' })
+    expect(written.join('')).not.toContain('deepseek-v4-pro')
+    app.stop()
+  })
+
   it('hides a long tool output behind a row that unfolds it', () => {
     const { stream, written } = fakeStream(90, 24)
     const app = createApp({
