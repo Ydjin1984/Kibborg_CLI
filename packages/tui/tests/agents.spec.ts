@@ -73,6 +73,35 @@ describe('agent rows', () => {
     expect(tools[1]?.durationMs).toBe(12)
   })
 
+  it('settles two calls of the same tool in call order', () => {
+    const log = createLog()
+    const renderer = createLogRenderer({ log })
+    renderer.toolCall('bash', 'first', undefined)
+    renderer.toolCall('bash', 'second', undefined)
+    renderer.toolDone('bash', 12)
+    renderer.toolDone('bash', 40)
+    const tools = log.entries.filter(entry => entry.kind === 'tool')
+    // A step may run the same tool twice; both rows must settle, and the first
+    // result belongs to the first row.
+    expect(tools.map(entry => entry.status)).toEqual(['ok', 'ok'])
+    expect(tools.map(entry => entry.durationMs)).toEqual([12, 40])
+    // A third result with no row left must not settle anything twice.
+    renderer.toolDone('bash', 99)
+    expect(log.entries.filter(entry => entry.kind === 'tool')).toHaveLength(2)
+  })
+
+  it('settles a result whose name the host did not repeat', () => {
+    const log = createLog()
+    const renderer = createLogRenderer({ log })
+    renderer.toolCall('bash', 'first', undefined)
+    renderer.toolDone('tool', 12)
+    // Some hosts report the result without the tool's name: the oldest open row is
+    // the only one it can belong to, and leaving it "running" would make the
+    // transcript claim work that has already finished.
+    expect(log.entries[0]?.status).toBe('ok')
+    expect(log.entries[0]?.durationMs).toBe(12)
+  })
+
   it('redraws a heading when the delegation names the agent', () => {
     const log = createLog()
     const renderer = createLogRenderer({ log })

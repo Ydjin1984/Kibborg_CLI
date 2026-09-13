@@ -34,14 +34,18 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
   /** Text accumulated for the answer being streamed. */
   let answerText = ''
   /**
-   * Entry of each running tool call, keyed by the agent that called it and the
-   * tool's name.
+   * Rows of the calls still running, oldest first, each with the agent that made it
+   * and the tool's name.
    *
-   * One slot is not enough once subagents work inside the turn: the head starts a
-   * delegation, a child starts its own call, and a single slot would settle the
-   * wrong row.
+   * One slot per name is not enough: a step may call the same tool twice, and its
+   * two results arrive in order. The list keeps the call order, so the first result
+   * settles the first row and no row stays "running" after the turn. The agent is
+   * part of the key because a delegation starts inside the turn: the head starts a
+   * call, a child starts its own, and a shared name would settle the wrong row.
+   * A result whose name the host does not repeat settles the oldest row, which is
+   * the only one it can belong to.
    */
-  const running = new Map<string, number>()
+  const running: { readonly key: string; readonly id: number }[] = []
   /** The agent whose rows are being appended, and the heading that opened it. */
   let current: { readonly badge: AgentBadge; readonly heading: number } | undefined
 
@@ -53,20 +57,21 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
   /** Key of one running call: the agent's label, then the tool's name. */
   const slot = (name: string): string => `${current?.badge.label ?? ''}\u0000${name}`
 
-  /** Take the entry of a finishing call, falling back to any agent's call of that name. */
+  /**
+   * Take the row a finishing call belongs to.
+   *
+   * The name decides when the host reports it: the oldest row of that agent and
+   * tool settles first. When the host repeats no name, the oldest row in the turn
+   * is the only candidate.
+   */
   const takeRunning = (name: string): number | undefined => {
-    const own = running.get(slot(name))
-    if (own !== undefined) {
-      running.delete(slot(name))
-      return own
-    }
-    for (const [key, id] of running) {
-      if (key.endsWith(`\u0000${name}`)) {
-        running.delete(key)
-        return id
-      }
-    }
-    return undefined
+    const known = name !== '' && name !== 'tool'
+    let index = known ? running.findIndex(entry => entry.key === slot(name)) : 0
+    if (index === -1 && known) index = running.findIndex(entry => entry.key.endsWith(`\u0000${name}`))
+    if (index === -1 && known) index = 0
+    if (index === -1) return undefined
+    const [taken] = running.splice(index, 1)
+    return taken?.id
   }
 
   return {
@@ -119,7 +124,7 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
         ...(call?.added === undefined ? {} : { added: call.added }),
         ...(call?.removed === undefined ? {} : { removed: call.removed }),
       })
-      running.set(slot(name), id)
+      running.push({ key: slot(name), id })
     },
     toolFailure(name, reason) {
       const id = takeRunning(name)
