@@ -107,6 +107,16 @@ function wrap(spans: readonly Span[], width: number): StyledLine[] {
     used = 0
   }
   for (const span of spans) {
+    if (span.text === '') continue
+    // A run that fits as it is keeps its own text, spaces included: wrapping it
+    // would trim the gap that separates it from the run before it.
+    const whole = displayWidth(span.text)
+    if (!span.text.includes('\n') && used + whole <= width) {
+      current.push(span)
+      used += whole
+      if (used >= width) flush()
+      continue
+    }
     const pieces = wrapText(span.text, Math.max(1, width))
     for (const [index, piece] of pieces.entries()) {
       const size = displayWidth(piece)
@@ -178,11 +188,35 @@ export function renderMarkdown(text: string, options: MarkdownOptions): StyledLi
   const lines: StyledLine[] = []
   const source = text.split('\n')
   let insideFence = false
+  let fenceLanguage = ''
   let tableRows: string[] = []
+
+  /** Whether the previous line was blank, so a block can be set off from prose. */
+  const blankBefore = (): boolean => {
+    const last = lines[lines.length - 1]
+    return lines.length === 0 || last === undefined || last.spans.every(span => span.text.trim() === '')
+  }
+  /** The visible text of the line rendered last. */
+  const lastText = (): string => (lines[lines.length - 1]?.spans ?? []).map(span => span.text).join('')
+  /** Whether a line opens a list item, so a list runs on instead of breaking. */
+  const isItemLine = /^\s{2,}(?:[•◦]|\d+\.)\s/u
+  // Blocks are separated by one blank row: a heading, a table, a code block, or a
+  // list that follows prose reads as its own block instead of running into it.
+  const breathe = (): void => {
+    if (!blankBefore() && !isItemLine.test(lastText())) lines.push({ spans: [] })
+  }
   const flushTable = (): void => {
     if (tableRows.length === 0) return
     const rows = tableRows.filter(line => !TABLE_RULE.test(line)).map(cellsOf)
-    if (rows.length > 0) lines.push(...table(rows, options))
+    if (rows.length > 0) {
+      breathe()
+      const rendered = table(rows, options)
+      const width = rendered.reduce((max, line) => Math.max(max, line.spans.reduce((sum, span) => sum + displayWidth(span.text), 0)), 0)
+      lines.push(...rendered)
+      // A rule under the last row closes the table, so it does not look like the
+      // prose after it continues the same block.
+      lines.push({ spans: [{ text: '─'.repeat(Math.max(4, width)), token: 'Subtle', dim: true }] })
+    }
     tableRows = []
   }
   for (const line of source) {
@@ -191,8 +225,19 @@ export function renderMarkdown(text: string, options: MarkdownOptions): StyledLi
       flushTable()
       insideFence = !insideFence
       if (insideFence) {
-        const language = fence[1] ?? ''
-        if (language !== '') lines.push({ spans: [{ text: `  ${language}`, token: 'Subtle', dim: true }] })
+        breathe()
+        fenceLanguage = fence[1] ?? ''
+        // A framed block marks where code starts and ends; the language rides the
+        // frame instead of standing alone above it.
+        lines.push({
+          spans: [
+            { text: '  ┌─', token: 'Subtle' },
+            ...fenceLanguage === '' ? [] : [{ text: ` ${fenceLanguage} `, token: 'Accent', dim: true } as Span],
+          ],
+        })
+      } else {
+        lines.push({ spans: [{ text: '  └─', token: 'Subtle' }] })
+        fenceLanguage = ''
       }
       continue
     }
@@ -210,34 +255,41 @@ export function renderMarkdown(text: string, options: MarkdownOptions): StyledLi
     }
     flushTable()
     if (line.trim() === '') {
-      lines.push({ spans: [] })
+      if (!blankBefore()) lines.push({ spans: [] })
       continue
     }
     const heading = HEADING.exec(line)
     if (heading !== null) {
       const level = (heading[1] ?? '#').length
       const body = heading[2] ?? ''
-      const prefix = level <= 2 ? '  ' : '   '
-      lines.push({
-        spans: [{ text: prefix, token: 'Subtle' }, ...inline(body, options, 'Text').map(span => ({ ...span, bold: true }))],
-      })
+      breathe()
+      const spans = inline(body, options, level === 1 ? 'Answer' : 'Text').map(span => ({ ...span, bold: true }))
+      // A marker plus, for the top level, a rule under the title: the answer then
+      // reads as a document with a title rather than as one more bold line.
+      lines.push({ spans: [{ text: '  ▎ ', token: level <= 2 ? 'Accent' : 'Subtle' }, ...spans] })
+      if (level === 1) {
+        const titleWidth = spans.reduce((sum, span) => sum + displayWidth(span.text), 0)
+        lines.push({ spans: [{ text: `  ${'─'.repeat(Math.max(4, Math.min(options.width - 4, titleWidth)))}`, token: 'Subtle', dim: true }] })
+      }
       continue
     }
     if (RULE.test(line)) {
+      breathe()
       lines.push({ spans: [{ text: '  ', token: 'Subtle' }, { text: '─'.repeat(Math.max(4, options.width - 2)), token: 'Subtle' }] })
       continue
     }
     const quote = QUOTE.exec(line)
     if (quote !== null) {
       for (const styled of wrap(inline(quote[1] ?? '', options, 'Muted'), Math.max(1, options.width - 4))) {
-        lines.push({ spans: [{ text: '  │ ', token: 'Subtle' }, ...styled.spans] })
+        lines.push({ spans: [{ text: '  ▏ ', token: 'Accent' }, ...styled.spans] })
       }
       continue
     }
     const bullet = BULLET.exec(line)
     if (bullet !== null) {
+      breathe()
       const depth = Math.floor((bullet[1] ?? '').length / 2)
-      const marker = `${'  '.repeat(depth + 1)}• `
+      const marker = `${'  '.repeat(depth + 1)}${depth === 0 ? '• ' : '◦ '}`
       for (const styled of wrap(inline(bullet[2] ?? '', options), Math.max(1, options.width - displayWidth(marker)))) {
         lines.push({ spans: [{ text: marker, token: 'Accent' }, ...styled.spans] })
       }
@@ -245,6 +297,7 @@ export function renderMarkdown(text: string, options: MarkdownOptions): StyledLi
     }
     const ordered = ORDERED.exec(line)
     if (ordered !== null) {
+      breathe()
       const depth = Math.floor((ordered[1] ?? '').length / 2)
       const marker = `${'  '.repeat(depth + 1)}${ordered[2] ?? '1'}. `
       for (const styled of wrap(inline(ordered[3] ?? '', options), Math.max(1, options.width - displayWidth(marker)))) {

@@ -1,10 +1,10 @@
 /**
  * Brand header of the fullscreen surface.
  *
- * Three static rows, exactly as `UI.md` §4.3 and `demo/kibborg-demo.bat` draw
- * them: the brand line with the working context, a live activity line carrying
- * the stage spinner and the band wave, and a thin rule separating the header
- * from the transcript. Only brightness and the wave phase move — never geometry.
+ * Two rows: the brand line with the working context and the active model, and a
+ * thin rule separating the header from the transcript. Everything the session is
+ * doing lives in the status row under the transcript, where it is read next to
+ * the work it describes instead of competing with the brand.
  * @module @kibborg/tui/header
  */
 
@@ -14,7 +14,6 @@ import type { Density } from './layout.ts'
 import type { Span, StyledLine } from './log.ts'
 import { paintStyledLine } from './logview.ts'
 import { displayWidth } from './width.ts'
-import { bandWave, elapsedLabel, spinnerFrame } from './anim.ts'
 
 /** Everything the header displays about the session. */
 export interface HeaderState {
@@ -47,10 +46,7 @@ export interface HeaderState {
 }
 
 /** Rows the header occupies. */
-export const HEADER_HEIGHT = 3
-
-/** Columns of the band wave. */
-const BAND_CELLS = 22
+export const HEADER_HEIGHT = 2
 
 /** Pad a span list with spaces so the trailing run ends at the right edge. */
 function withRight(left: readonly Span[], right: readonly Span[], width: number): readonly Span[] {
@@ -61,44 +57,32 @@ function withRight(left: readonly Span[], right: readonly Span[], width: number)
 }
 
 /**
- * Render the header rows: brand, live activity, rule.
+ * Render the header rows: brand, rule.
+ *
+ * The whole row is one statement about where the session is: the brand, the
+ * version, the working directory, the model that answers, and the permission
+ * mode in force.
  * @param state - session values to display.
  * @param width - available columns.
- * @returns three styled lines.
+ * @returns two styled lines.
  */
 export function renderHeader(state: HeaderState, width: number): readonly StyledLine[] {
   const brand: Span[] = state.title === undefined
     ? [
         { text: '  ', token: 'Muted' },
-        { text: '◆ KIBBORG', token: 'Accent', bold: true },
+        { text: '◆ KIBBORG', token: 'AgentKibborg', bold: true },
         { text: `  ${state.version}`, token: 'Muted' },
         { text: `    ${state.cwd}`, token: 'Text' },
       ]
     : [...state.title]
 
-  const right: Span[] = [{ text: state.model, token: 'Text' }]
-  if (state.mode !== '') right.push({ text: `   ${state.mode}`, token: 'Accent' })
-
-  const live: Span[] = [{ text: '  ', token: 'Muted' }]
-  const tail: Span[] = []
-  const used = (spans: readonly Span[]): number => spans.reduce((total, span) => total + displayWidth(span.text), 0)
-  if (state.running) {
-    live.push({ text: spinnerFrame(state.tick), token: 'Shimmer', bold: true })
-    live.push({ text: `  ${state.activity ?? 'Working'}…`, token: 'Text' })
-    live.push({ text: `  ${elapsedLabel(state.elapsedMs)}`, token: 'Muted' })
-    live.push({ text: '   esc interrupt', token: 'Muted', dim: true })
-    if (state.tokens !== undefined) live.push({ text: `   ${String(state.tokens)} tok`, token: 'Muted' })
-  } else {
-    live.push({ text: '◇', token: 'Subtle' })
-    live.push({ text: '  ready', token: 'Muted' })
-    live.push({ text: '   enter отправить   / команды   shift+tab режим', token: 'Muted', dim: true })
-  }
-  const bandCells = Math.max(0, Math.min(BAND_CELLS, width - used(live) - 4))
-  if (bandCells >= 6) tail.push({ text: bandWave(state.tick, bandCells), token: 'Shimmer', dim: true })
+  const right: Span[] = []
+  if (state.running) right.push({ text: '●', token: 'Success' }, { text: ' ', token: 'Muted' })
+  right.push({ text: state.model, token: 'Text' })
+  if (state.mode !== '') right.push({ text: `   ${state.mode}`, token: 'RoleBadge' })
 
   return [
     { spans: withRight(brand, right, width) },
-    { spans: withRight(live, tail, width) },
     { spans: [{ text: `  ${'─'.repeat(Math.max(0, width - 4))}`, token: 'Subtle' }] },
   ]
 }

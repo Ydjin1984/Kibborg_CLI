@@ -25,6 +25,20 @@ export type TokenName =
   | 'DiffRemove'
   | 'Orange'
   | 'Answer'
+  /** Identity of an agent, so the same agent keeps the same color everywhere. */
+  | 'AgentKibborg'
+  | 'AgentDeepSeek'
+  | 'AgentGrok'
+  | 'AgentFlash'
+  | 'AgentCodex'
+  | 'AgentClaude'
+  /** The role an agent runs in: muted by design, never the agent's own color. */
+  | 'RoleBadge'
+  /** What kind of work a row reports, independent of who did it. */
+  | 'ActionThink'
+  | 'ActionTool'
+  | 'ActionFile'
+  | 'ActionDelegate'
 
 /** Rendering state applied alongside a color. */
 export interface TokenStyle {
@@ -78,6 +92,17 @@ const TRUE_COLOR: Readonly<Record<TokenName, readonly [number, number, number]>>
   DiffRemove: [240, 113, 133],
   Orange: [255, 158, 74],
   Answer: [226, 232, 240],
+  AgentKibborg: [92, 225, 230],
+  AgentDeepSeek: [76, 141, 255],
+  AgentGrok: [192, 132, 252],
+  AgentFlash: [255, 158, 74],
+  AgentCodex: [87, 214, 138],
+  AgentClaude: [232, 160, 122],
+  RoleBadge: [139, 147, 161],
+  ActionThink: [122, 132, 148],
+  ActionTool: [92, 225, 230],
+  ActionFile: [165, 180, 252],
+  ActionDelegate: [232, 121, 249],
 }
 
 /** 16-color fallbacks, preserving the meaning of each token. */
@@ -97,28 +122,62 @@ const FALLBACK: Readonly<Record<TokenName, string>> = {
   Orange: '33',
   Answer: '97',
   PermLav: '94',
+  AgentKibborg: '96',
+  AgentDeepSeek: '94',
+  AgentGrok: '95',
+  AgentFlash: '33',
+  AgentCodex: '92',
+  AgentClaude: '33',
+  RoleBadge: '90',
+  ActionThink: '90',
+  ActionTool: '96',
+  ActionFile: '94',
+  ActionDelegate: '95',
 }
 
 /** No-op palette for plain output. */
 export const plainPalette: Palette = { paint: text => text, sgr: () => '' }
 
 /**
- * Colors an agent can be drawn in.
+ * Colors an agent can be drawn in when nothing identifies it.
  *
- * They are existing theme tokens, chosen for even separation at 16 colors, so a
- * deployment never has to declare a color per agent.
+ * Known agents get a fixed color from {@link AGENT_NAMES}, so the same product
+ * reads the same way in every session; an unknown one is placed by its name.
  */
-const AGENT_TOKENS: readonly TokenName[] = ['Accent', 'Orange', 'BashPink', 'PermLav', 'Shimmer', 'Warn', 'Answer', 'Success']
+const AGENT_TOKENS: readonly TokenName[] = [
+  'AgentKibborg',
+  'AgentDeepSeek',
+  'AgentGrok',
+  'AgentFlash',
+  'AgentCodex',
+  'AgentClaude',
+]
+
+/** Fixed color of the agents a deployment is likely to name. */
+const AGENT_NAMES: readonly (readonly [RegExp, TokenName])[] = [
+  // The executor route is checked before the product name: `kibborg/Kibborg_Flash`
+  // is the local executor, and it has to read as its own agent, not as the head.
+  [/flash/i, 'AgentFlash'],
+  [/grok/i, 'AgentGrok'],
+  [/deepseek/i, 'AgentDeepSeek'],
+  [/kibborg/i, 'AgentKibborg'],
+  [/codex|openai|gpt/i, 'AgentCodex'],
+  [/claude|anthropic/i, 'AgentClaude'],
+]
 
 /**
  * Pick the color of one agent.
  *
  * The same name always maps to the same color, so a transcript stays readable
- * while agents come and go, and two agents in one run rarely share a color.
+ * while agents come and go, and two agents in one run rarely share a color. The
+ * color answers "who", never "what": roles and actions have their own tokens.
  * @param seed - the agent's identity, normally its model or label.
  * @returns the token to draw that agent in.
  */
 export function agentToken(seed: string): TokenName {
+  for (const [pattern, token] of AGENT_NAMES) {
+    if (pattern.test(seed)) return token
+  }
   let hash = 0
   for (let index = 0; index < seed.length; index += 1) {
     hash = (hash * 31 + seed.charCodeAt(index)) | 0

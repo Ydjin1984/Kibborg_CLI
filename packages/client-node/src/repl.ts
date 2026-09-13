@@ -470,6 +470,13 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   /** Move this loop to another session and show what it contains. */
   const adoptSession = async (id: SessionId, label: string): Promise<void> => {
     sessionId = id
+    // The transcript follows the session: a previous conversation's answer would
+    // otherwise stay on screen as the newest text, next to another session's work.
+    if (app !== undefined) {
+      app.log.clear()
+      app.setStatus({ agents: undefined, tasks: undefined })
+      app.render()
+    }
     emit(`  ${label}: ${sessionId}\n`)
     const read = await readHistoryEvents(options.client, id)
     if (read === undefined) return
@@ -711,6 +718,13 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       onQuestion: askQuestion,
       ...(route === undefined || route === '' ? {} : { model: route }),
       ...(options.settings.timestamps ? { timestamps: true } : {}),
+      // The status line says how much work is in flight, so a long delegation shows
+      // its progress instead of only a spinner.
+      ...(app === undefined ? {} : {
+        onProgress: (progress: { readonly agents: number; readonly tasks: number }) => {
+          app.setStatus({ agents: progress.agents, tasks: progress.tasks })
+        },
+      }),
       ...(app === undefined
         ? {}
         : {

@@ -110,8 +110,10 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
         kind: 'tool',
         text: argument ?? '',
         name,
+        toolName: name,
         status: 'running',
         ...owner(),
+        ...(call?.title === undefined ? {} : { title: call.title }),
         ...(call?.input === undefined ? {} : { input: call.input }),
         ...(call?.diff === undefined ? {} : { diff: call.diff }),
         ...(call?.added === undefined ? {} : { added: call.added }),
@@ -122,7 +124,8 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
     toolFailure(name, reason) {
       const id = takeRunning(name)
       if (id === undefined) {
-        log.append({ kind: 'error', text: `${name}: ${reason}` })
+        // A failure with no row of its own still belongs to the agent that made it.
+        log.append({ kind: 'error', text: `${name}: ${reason}`, ...owner() })
         return
       }
       log.patch(id, { status: 'fail', meta: reason })

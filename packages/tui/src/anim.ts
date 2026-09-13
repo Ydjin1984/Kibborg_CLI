@@ -12,6 +12,19 @@ export function spinnerFrame(tick: number): string {
   return frames[index] || '·'
 }
 
+/**
+ * Create one frame of the working spinner.
+ *
+ * Four glyphs of a turning quarter circle: a quiet mark of motion that reads as
+ * one object rather than as a scattering of characters.
+ * @param tick - frames advanced since the turn started.
+ * @returns the glyph for this frame.
+ */
+export function workingSpinner(tick: number): string {
+  const frames = ['◐', '◓', '◑', '◒']
+  return frames[Math.abs(tick) % frames.length] ?? '◐'
+}
+
 /** Create a band wave. */
 export function bandWave(tick: number, cells: number): string {
   if (cells <= 0) {

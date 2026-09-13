@@ -23,17 +23,32 @@ describe('agent rows', () => {
     expect(lines[1]).toContain('посчитать файлы')
   })
 
-  it('indents a subagent branch and marks its end', () => {
+  it('draws a delegation as a box and closes it below its work', () => {
     const log = createLog()
-    log.append({ kind: 'agent', text: '', agent: badge(1, { label: 'Kibborg_Flash', role: 'EXECUTOR' }) })
-    log.append({ kind: 'tool', text: 'packages', name: 'bash', status: 'running', agent: badge(1, { label: 'Kibborg_Flash', role: 'EXECUTOR' }) })
-    log.append({ kind: 'agent', text: 'готово', agent: badge(1, { label: 'Kibborg_Flash', state: 'done' }) })
-    const lines = renderEntries(log.entries, 120).map(plainText)
-    expect(lines[0]).toContain('├─')
+    const child = badge(1, { label: 'Kibborg_Flash', role: 'EXECUTOR', sessionId: 'child' })
+    log.append({ kind: 'agent', text: '', agent: child })
+    log.append({ kind: 'tool', text: 'packages', name: 'bash', status: 'running', title: 'Запускает ls', agent: child })
+    const closed = log.append({ kind: 'agent', text: 'готово', agent: { ...child, state: 'done' } })
+    const rendered = renderEntries(log.entries, 120)
+    const lines = rendered.map(plainText)
+    // The open row names the agent, its role, and its state, and lands its corner
+    // in the last column.
+    expect(lines[0]).toContain('┌─')
     expect(lines[0]).toContain('EXECUTOR')
-    expect(lines[1]?.startsWith('  │  ')).toBe(true)
+    expect(lines[0]).toContain('WORKING')
+    expect(lines[0]?.endsWith('┐')).toBe(true)
+    // The count of the folded branch sits inside the box, and the close follows it.
+    expect(lines[1]).toContain('1 шаг этой ветки')
     expect(lines[2]).toContain('└─')
-    expect(lines.join('\n')).toContain('готово')
+    expect(lines[2]).toContain('DONE')
+    expect(lines[2]?.endsWith('┘')).toBe(true)
+    expect(rendered.some(line => line.collapsed === true && line.entryId === closed)).toBe(true)
+    // Expanding the close brings the branch back between the walls.
+    log.patch(closed, { expanded: true })
+    const opened = renderEntries(log.entries, 120).map(plainText)
+    const row = opened.find(text => text.includes('Запускает ls')) ?? ''
+    expect(row.startsWith('  │')).toBe(true)
+    expect(row.endsWith('│')).toBe(true)
   })
 
   it('colors two agents differently when their names differ', () => {
@@ -80,6 +95,26 @@ describe('agent rows', () => {
     })
     const line = renderEntries(log.entries, 120).map(plainText)[0] ?? ''
     expect(line.startsWith('  │    │  ')).toBe(true)
+  })
+
+  it('folds a finished delegation into its frame plus one count row', () => {
+    const log = createLog()
+    const child = badge(1, { label: 'Разбор ревью', sessionId: 'child', role: 'EXECUTOR' })
+    log.append({ kind: 'agent', text: '', agent: { ...child, state: 'open' } })
+    log.append({ kind: 'tool', name: 'grep', status: 'ok', text: 'grep', title: 'Ищет guard.go', agent: child })
+    log.append({ kind: 'tool', name: 'read', status: 'ok', text: 'read', title: 'Читает guard.go', agent: child })
+    const closed = log.append({ kind: 'agent', text: '', agent: { ...child, state: 'done' } })
+    const joined = renderEntries(log.entries, 120).map(plainText).join('\n')
+    // The work of a finished branch is behind one row, and that row carries the
+    // entry a click expands.
+    expect(joined).not.toContain('Ищет guard.go')
+    expect(joined).toContain('2 шагов этой ветки')
+    const marker = renderEntries(log.entries, 120).find(line => line.collapsed === true)
+    expect(marker?.entryId).toBe(closed)
+    log.patch(closed, { expanded: true })
+    const opened = renderEntries(log.entries, 120).map(plainText).join('\n')
+    expect(opened).toContain('Ищет guard.go')
+    expect(opened).not.toContain('2 шагов этой ветки')
   })
 
   it('opens one heading per agent and closes the branch below its work', () => {

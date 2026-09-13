@@ -71,6 +71,8 @@ export interface AgentTracker {
   owns(sessionId: string): boolean
   /** The agent that owns a session, when it is known. */
   of(sessionId: string): AgentIdentity | undefined
+  /** How many agents this run has, counting the one the user talks to. */
+  count(): number
   /**
    * Remember the task a delegation just named.
    *
@@ -335,6 +337,9 @@ export function createAgentTracker(
     owns,
     of(sessionId) {
       return sessionId === options.sessionId ? rootBadge() : owns(sessionId) ? identityOf(sessionId) : undefined
+    },
+    count() {
+      return 1 + seen.size
     },
     hint(label) {
       const text = label.trim()

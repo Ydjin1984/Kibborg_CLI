@@ -8,6 +8,7 @@
  */
 
 import type { Palette, TokenName } from './tokens.ts'
+import { elapsedLabel } from './anim.ts'
 
 /** Everything the status line can show. */
 export interface StatusInput {
@@ -35,6 +36,34 @@ export interface StatusInput {
   readonly tokens?: number
   /** Short hint appended while the line has room, such as how to interrupt. */
   readonly hint?: string
+  /** Whether a turn is running, which decides the leading word. */
+  readonly running?: boolean
+  /** How many agents are working on this run, including the one the user talks to. */
+  readonly agents?: number
+  /** How many tool calls the run has made so far. */
+  readonly tasks?: number
+}
+
+/** The Russian plural form of a count, for the words the status line uses. */
+function plural(count: number, one: string, few: string, many: string): string {
+  const rest = count % 100
+  if (rest >= 11 && rest <= 14) return many
+  const last = count % 10
+  if (last === 1) return one
+  if (last >= 2 && last <= 4) return few
+  return many
+}
+
+/** How many agents and tasks the surface reports. */
+function crew(agents: number | undefined, tasks: number | undefined, palette: Palette): string[] {
+  const parts: string[] = []
+  if (agents !== undefined) {
+    parts.push(palette.paint(`${String(agents)} ${plural(agents, 'агент', 'агента', 'агентов')}`, 'Muted'))
+  }
+  if (tasks !== undefined && tasks > 0) {
+    parts.push(palette.paint(`${String(tasks)} ${plural(tasks, 'задача', 'задачи', 'задач')}`, 'Muted'))
+  }
+  return parts
 }
 
 /**
@@ -79,18 +108,24 @@ export function formatTokens(count: number): string {
 export function statusLine(input: StatusInput, palette: Palette): string {
   const separator = palette.paint(' · ', 'Subtle')
   const percent = String(Math.round(input.contextPercent))
-  const model = input.spinner === undefined
-    ? palette.paint(input.model, 'Text')
-    : `${palette.paint(input.spinner, input.spinnerToken ?? 'Warn')} ${palette.paint(input.model, 'Text')}`
-  const parts: string[] = [
-    model,
-    `${palette.paint('ctx ', 'Muted')}${palette.paint(`${percent}%`, 'Text')}`,
-  ]
+  const working = input.running === true || input.spinner !== undefined
+  const parts: string[] = []
+  if (working) {
+    // While the turn runs, the line answers "what is happening": a state word, how
+    // long, and who is on it. The model that answers is named in the header.
+    parts.push(`${palette.paint('✦', 'Shimmer', { bold: true })} ${palette.paint('Working', 'Text')}`)
+    if (input.turnSeconds !== undefined) parts.push(palette.paint(elapsedLabel(input.turnSeconds * 1000), 'Muted'))
+    parts.push(...crew(input.agents, input.tasks, palette))
+  } else {
+    parts.push(palette.paint(input.model, 'Text'))
+    parts.push(...crew(input.agents, input.tasks, palette))
+  }
+  parts.push(`${palette.paint('ctx ', 'Muted')}${palette.paint(`${percent}%`, 'Text')}`)
   if (input.cols >= 72) parts.push(contextBar(input.contextPercent, palette))
   if (input.cols >= 110 && input.costUsd !== undefined) {
     parts.push(palette.paint(`$${input.costUsd.toFixed(2)}`, 'Muted'))
   }
-  if (input.cols >= 80 && input.turnSeconds !== undefined) {
+  if (input.cols >= 80 && input.turnSeconds !== undefined && !working) {
     parts.push(palette.paint(`${input.turnSeconds.toFixed(1)}s`, 'Muted'))
   }
   if (input.cols >= 96 && input.tokens !== undefined) {
@@ -99,7 +134,7 @@ export function statusLine(input: StatusInput, palette: Palette): string {
   if (input.cols >= 88 && input.branch !== undefined && input.branch !== '') {
     parts.push(palette.paint(input.dirty === true ? `${input.branch}*` : input.branch, 'Warn'))
   }
-  parts.push(palette.paint(input.mode, 'Accent'))
+  parts.push(palette.paint(input.mode, 'RoleBadge'))
   if (input.hint !== undefined && input.hint !== '' && input.cols >= 100) {
     parts.push(palette.paint(input.hint, 'Muted'))
   }

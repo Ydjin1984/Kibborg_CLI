@@ -1,12 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { createBuffer } from '../src/framebuffer.ts'
-import { createLog, clampScroll, renderEntries, visibleLines, scrollIndicator, wrapText, lineWidth, plainText } from '../src/log.ts'
+import { createLog, clampScroll, renderEntries, visibleLines, scrollIndicator, wrapText, lineWidth, plainText, type AgentBadge } from '../src/log.ts'
 import { drawLogView } from '../src/logview.ts'
 import { parseKeys } from '../src/input.ts'
 import { decodeSgrMouse, decodeX10Mouse, wheelDelta } from '../src/mouse.ts'
 import { createApp } from '../src/app.ts'
 import { plainPalette } from '../src/tokens.ts'
 import { statusLine } from '../src/status.ts'
+import { renderHeader } from '../src/header.ts'
 import { displayWidth } from '../src/width.ts'
 
 /** A writable stream stub that records what the surface emitted. */
@@ -89,7 +90,7 @@ describe('key parsing extensions', () => {
 })
 
 describe('transcript rendering', () => {
-  it('never renders a line wider than the region', () => {
+  it('never renders a line wider than the region, boxes included', () => {
     const log = createLog()
     log.append({ kind: 'user', text: 'проанализируй этот проект и найди проблемы' })
     log.append({ kind: 'assistant', text: 'Начинаю анализ. ' + 'Очень длинное слово'.repeat(8) })
@@ -100,6 +101,24 @@ describe('transcript rendering', () => {
     log.append({ kind: 'plan', text: 'Inspect project\nRead manifest' })
     log.append({ kind: 'diff', text: '+ added\n- removed' })
     log.append({ kind: 'rule', text: '' })
+    // A delegation box, its own rows, a finished branch, and a deeper tree: every
+    // one of them has to hold its walls inside the region.
+    const agent: AgentBadge = {
+      label: 'Очень длинное имя делегированной задачи для проверки ширины',
+      model: 'kibborg/Kibborg_Flash_v5.7',
+      role: 'EXECUTOR',
+      depth: 1,
+      token: 'AgentFlash',
+      sessionId: 'child',
+    }
+    log.append({ kind: 'agent', text: 'Анализирует код', agent })
+    log.append({ kind: 'tool', text: 'guard.go', name: 'read', status: 'ok', title: 'Читает engine-go/guard.go', agent })
+    log.append({
+      kind: 'agent',
+      text: '',
+      agent: { ...agent, depth: 3, sessionId: 'grand', state: 'done' },
+    })
+    log.append({ kind: 'tool', text: 'deep', name: 'grep', status: 'ok', title: 'Ищет deep', agent: { ...agent, depth: 3, sessionId: 'grand' } })
     for (let width = 8; width <= 200; width += 7) {
       const lines = renderEntries(log.entries, width)
       for (const line of lines) expect(lineWidth(line)).toBeLessThanOrEqual(width)
@@ -108,29 +127,30 @@ describe('transcript rendering', () => {
 
   it('marks the status of a tool with its lifecycle color', () => {
     const log = createLog()
-    log.append({ kind: 'tool', text: 'README.md', name: 'read', status: 'ok' })
-    log.append({ kind: 'tool', text: 'x', name: 'read', status: 'fail' })
+    log.append({ kind: 'tool', text: 'README.md', name: 'grep', status: 'ok', title: 'Ищет строки' })
+    log.append({ kind: 'tool', text: 'x', name: 'grep', status: 'fail', title: 'Ищет строки' })
     const lines = renderEntries(log.entries, 80, { runningGlyph: '✳' })
     const tokens = lines.flatMap(line => line.spans.map(span => span.text))
     expect(tokens).toContain('✓')
-    expect(tokens).toContain('✗')
+    expect(tokens).toContain('✕')
+    // The word, not the tool name, is what the row says.
+    expect(tokens).toContain('Ищет строки')
   })
 
-  it('colors the shell tool differently and keeps every detail line once expanded', () => {
+  it('hides a tool detail behind one clickable row', () => {
     const log = createLog()
     const detail = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
-    const id = log.append({ kind: 'tool', text: 'ls', name: 'bash', status: 'running', detail })
+    const id = log.append({ kind: 'tool', text: 'ls', name: 'bash', status: 'ok', detail, title: 'Запускает ls' })
     const condensed = renderEntries(log.entries, 100, { runningGlyph: '✳' })
-    const bashSpan = condensed.flatMap(line => line.spans).find(span => span.text === 'bash')
-    expect(bashSpan?.token).toBe('BashPink')
-    // A long block shows its head plus the row that expands it.
-    expect(condensed.some(line => plainText(line).includes('ещё'))).toBe(true)
+    // Nothing but the action line and the row that offers the detail.
+    expect(condensed.map(plainText).join('\n')).toContain('Запускает ls')
+    expect(condensed.some(line => line.collapsed === true)).toBe(true)
     expect(condensed.some(line => plainText(line).includes('⎿  h'))).toBe(false)
     log.patch(id, { expanded: true })
     const lines = renderEntries(log.entries, 100, { runningGlyph: '✳' })
     const shown = lines.map(line => plainText(line))
     for (const row of detail) expect(shown.some(text => text.includes(`⎿  ${row}`))).toBe(true)
-    expect(shown.some(text => text.includes('ещё'))).toBe(false)
+    expect(lines.some(line => line.collapsed === true)).toBe(false)
   })
 
   it('shows what a tool was sent and what it returned, with the change counts', () => {
@@ -476,21 +496,44 @@ describe('fullscreen app', () => {
       contextPercent: 26,
       mode: 'Agent',
       cols: 120,
-      spinner: '✳',
-      spinnerToken: 'Orange',
+      running: true,
       turnSeconds: 26.6,
       tokens: 32119,
+      agents: 3,
+      tasks: 7,
       hint: 'esc прерывает ход',
     }, plainPalette)
-    expect(line).toContain('kibborg/Kibborg_Flash_v5.7')
-    expect(line).toContain('ctx 26%')
+    // The line answers "what is happening"; the model that answers is in the header.
+    expect(line).toContain('Working')
     expect(line).toContain('26.6s')
+    expect(line).toContain('ctx 26%')
     expect(line).toContain('32.1k tok')
+    expect(line).toContain('3 агента')
+    expect(line).toContain('7 задач')
     expect(line).toContain('Agent')
     expect(line).toContain('esc прерывает ход')
   })
 
-  it('condenses a long entry and expands it on a click', () => {
+  it('names the model and the state in the header row', () => {
+    const header = renderHeader({
+      model: 'kibborg/Kibborg_Flash_v5.7',
+      cwd: '/work',
+      version: 'v0.1.0',
+      mode: 'Agent',
+      running: true,
+      tick: 3,
+      elapsedMs: 1200,
+      density: 'full',
+    }, 120).map(line => line.spans.map(span => span.text).join(''))
+    // One row carries the brand, the context, and the model; the second is the rule.
+    expect(header).toHaveLength(2)
+    expect(header[0]).toContain('KIBBORG')
+    expect(header[0]).toContain('/work')
+    expect(header[0]).toContain('kibborg/Kibborg_Flash_v5.7')
+    expect(header[1]).toContain('─')
+  })
+
+  it('hides a long tool output behind a row that expands it on a click', () => {
     const { stream, written } = fakeStream(90, 24)
     const app = createApp({
       stdout: stream,
@@ -502,14 +545,14 @@ describe('fullscreen app', () => {
       caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
     })
     const output = Array.from({ length: 40 }, (_, index) => `строка вывода ${String(index)}`).join('\n')
-    const id = app.log.append({ kind: 'tool', text: 'read big.md', name: 'read', status: 'ok', output })
+    const id = app.log.append({ kind: 'tool', text: 'big.md', name: 'read', status: 'ok', output, title: 'Читает big.md' })
     app.start()
     const condensed = renderEntries(app.log.entries, 90, {})
+    // The row itself is the hotspot: it names what is behind it and carries the
+    // entry identity a click resolves.
     const marker = condensed.find(line => line.collapsed === true)
     expect(marker).toBeDefined()
-    expect(plainText(marker as never)).toContain('ещё')
-    expect(condensed.length).toBeLessThanOrEqual(22)
-    // The marker carries the entry identity, which is how a click finds it.
+    expect(plainText(marker as never)).toContain('вывод')
     expect(marker?.entryId).toBe(id)
     expect(condensed.some(line => plainText(line).includes('строка вывода 39'))).toBe(false)
     written.length = 0

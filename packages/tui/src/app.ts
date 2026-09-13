@@ -21,6 +21,7 @@ import { dashedLine, drawBox } from './box.ts'
 import { computeLayout, densityFor, type Density } from './layout.ts'
 import type { KeyEvent } from './input.ts'
 import type { LogModel, Span } from './log.ts'
+import type { TokenName } from './tokens.ts'
 import { createLog, clampScroll, renderTranscript, wrapText } from './log.ts'
 import { drawLogView, paintStyledLine } from './logview.ts'
 import { drawHeader, HEADER_HEIGHT, type HeaderState } from './header.ts'
@@ -29,8 +30,8 @@ import { renderMenu, type MenuItem, type MenuView, type DialogView } from './men
 import { wheelDelta } from './mouse.ts'
 import { createScreen, type Screen, type TerminalCaps } from './screen.ts'
 import { displayWidth } from './width.ts'
-import { progressBar, spinnerFrame } from './anim.ts'
-import { formatTokens, thinkingToken } from './status.ts'
+import { elapsedLabel, progressBar, workingSpinner } from './anim.ts'
+import { formatTokens } from './status.ts'
 
 /** Session values shown in the status line. */
 export interface AppStatus {
@@ -50,6 +51,10 @@ export interface AppStatus {
   readonly costUsd?: number
   /** Tokens spent this turn. */
   readonly tokens?: number
+  /** Agents working on this run, including the one the user talks to. */
+  readonly agents?: number | undefined
+  /** Tool calls the run has made so far. */
+  readonly tasks?: number | undefined
 }
 
 /** How to build the surface. */
@@ -251,6 +256,8 @@ export function createApp(options: AppOptions): App {
   let lastFrame: CellBuffer | undefined
   /** Frame row of each condensing row, mapped to the entry a click toggles. */
   const collapsedRows = new Map<number, number>()
+  /** A press on a condensing row, which becomes a click when the pointer stays put. */
+  let armedClick: { readonly x: number; readonly y: number; readonly entryId: number } | undefined
   let timer: NodeJS.Timeout | undefined
   /** Pending removals of flashing confirmations. */
   const flashTimers: NodeJS.Timeout[] = []
@@ -377,12 +384,15 @@ export function createApp(options: AppOptions): App {
     const buf = createBuffer(cols, rows, palette)
     if (welcome === null) drawHeader(buf, layout.header, headerState(density))
 
-    const body = renderTranscript(log.entries, layout.log.w, {
+    // One column stays free at the right: the scrollbar is drawn there, and a box
+    // whose corner sits in that column would be painted over by it.
+    const logWidth = Math.max(20, layout.log.w - 1)
+    const body = renderTranscript(log.entries, logWidth, {
       tick,
-      runningGlyph: spinnerFrame(tick),
+      runningGlyph: workingSpinner(tick),
       hyperlinks: true,
       version: log.version,
-      ...(welcome === null ? {} : { leading: renderWelcome({ ...welcome, tick }, layout.log.w, layout.log.h) }),
+      ...(welcome === null ? {} : { leading: renderWelcome({ ...welcome, tick }, logWidth, layout.log.h) }),
     })
     transcriptHeight = body.total
     viewportHeight = layout.log.h
@@ -390,13 +400,15 @@ export function createApp(options: AppOptions): App {
     const view = drawLogView(buf, layout.log, body, { offset, follow })
     offset = view.offset
     follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
-    // Remember which frame row holds a condensing row, so a click on it can find
-    // the entry it belongs to (the rows are aligned to the bottom of the region,
-    // exactly as the view drew them).
+    // Remember which frame row holds a row that reacts to a click, so the click can
+    // find what it belongs to. The mapping comes from the view itself: a pinned
+    // heading shifts every painted row down, and recomputing the offset here would
+    // put the hotspot one row away from the marker the user sees.
     collapsedRows.clear()
-    const startRow = layout.log.y + Math.max(0, layout.log.h - Math.min(layout.log.h, transcriptHeight - offset))
-    for (const [index, line] of view.visible.entries()) {
-      if (line.collapsed === true && line.entryId !== undefined) collapsedRows.set(startRow + index, line.entryId)
+    for (const painted of view.painted) {
+      if (painted.line.collapsed === true && painted.line.entryId !== undefined) {
+        collapsedRows.set(painted.row, painted.line.entryId)
+      }
     }
 
     if (layout.overlay !== null) {
@@ -408,7 +420,7 @@ export function createApp(options: AppOptions): App {
       }
     }
     drawComposer(buf, layout.composer, { draft, hint, running })
-    drawStatus(buf, layout.status, status, cols, running, tick)
+    drawStatus(buf, layout.status, status, cols, running)
     paintSelection(buf)
     lastFrame = buf
     screen.present(buf)
@@ -457,6 +469,9 @@ export function createApp(options: AppOptions): App {
     setRunning(next, nextActivity) {
       running = next
       if (nextActivity !== undefined) activity = nextActivity
+      // The counters describe the turn that just ended: leaving them on an idle line
+      // would claim that three agents are still working.
+      if (!next) status = { ...status, agents: undefined, tasks: undefined }
       if (next) startedAt = Date.now()
       render()
     },
@@ -582,35 +597,63 @@ export function createApp(options: AppOptions): App {
               return
             }
           }
-          // A click on a condensing row expands or collapses its entry: that is
-          // how a long document, diff, or tool output stays out of the way.
+          // A click on a row that reacts expands or collapses its entry: that is how
+          // a long document, a tool detail, or a finished delegation stays out of
+          // the way. The press only arms the click; a drag still selects text.
           if (event.action === 'press-left' && !event.ctrl) {
+            armedClick = undefined
             const entryId = collapsedRows.get(event.y)
             if (entryId !== undefined) {
-              const entry = log.entries.find(candidate => candidate.id === entryId)
-              if (entry !== undefined) {
-                log.patch(entryId, { expanded: entry.expanded !== true })
-                render()
-                return
-              }
+              armedClick = { x: event.x, y: event.y, entryId }
+              return
             }
           }
           if (event.action === 'press-left') {
+            armedClick = undefined
             selection = { anchor: { x: event.x, y: event.y }, head: { x: event.x, y: event.y } }
             render()
             return
           }
-          if (event.action === 'move' && selection !== undefined) {
-            selection.head = { x: event.x, y: event.y }
-            render()
-            return
+          if (event.action === 'move') {
+            if (armedClick !== undefined) {
+              // The pointer left the cell it pressed: this is a selection after all.
+              if (event.y !== armedClick.y || event.x !== armedClick.x) {
+                selection = {
+                  anchor: { x: armedClick.x, y: armedClick.y },
+                  head: { x: event.x, y: event.y },
+                }
+                armedClick = undefined
+                render()
+              }
+              return
+            }
+            if (selection !== undefined) {
+              selection.head = { x: event.x, y: event.y }
+              render()
+              return
+            }
           }
-          if (event.action === 'release' && selection !== undefined) {
-            const text = lastFrame === undefined ? '' : selectionText(lastFrame)
-            selection = undefined
-            render()
-            if (text.trim() !== '') onSelection?.(text)
-            return
+          if (event.action === 'release') {
+            if (armedClick !== undefined) {
+              const { entryId } = armedClick
+              armedClick = undefined
+              const entry = log.entries.find(candidate => candidate.id === entryId)
+              if (entry !== undefined) {
+                log.patch(entryId, { expanded: entry.expanded !== true })
+                render()
+              }
+              return
+            }
+            if (selection !== undefined) {
+              // A press and a release in one cell is a click, not a selection: it
+              // must not put that single character on the clipboard.
+              const moved = selection.anchor.x !== selection.head.x || selection.anchor.y !== selection.head.y
+              const text = !moved || lastFrame === undefined ? '' : selectionText(lastFrame)
+              selection = undefined
+              render()
+              if (text.trim() !== '') onSelection?.(text)
+              return
+            }
           }
           unhandled?.(key)
           return
@@ -723,8 +766,10 @@ function drawComposer(
   if (hintRow > rect.y) {
     buf.put(left, hintRow, '│', 'Subtle')
     buf.put(right, hintRow, '│', 'Subtle')
-    const text = input.running ? 'работаю — Esc прерывает ход' : input.hint
-    buf.write(left + 4, hintRow, takeHead(text, Math.max(0, available)), 'Muted', { dim: true })
+    // While a turn runs the hint states that fact, so the row under the composer
+    // answers "is it still working" without the user reading the status line.
+    const text = input.running ? '✦ Working · Esc прерывает ход' : input.hint
+    buf.write(left + 4, hintRow, takeHead(text, Math.max(0, available)), input.running ? 'Text' : 'Muted', { dim: true })
   }
   if (rect.h >= 4) buf.write(left, rect.y + rect.h - 1, dashedLine(inner), 'Subtle')
 }
@@ -777,26 +822,58 @@ function drawDialog(buf: CellBuffer, rect: Rect, dialog: DialogView): void {
   }
 }
 
+/**
+ * The Russian plural form of a count, for the words the status line uses.
+ * @param count - the number being counted.
+ * @param one - form for one.
+ * @param few - form for two to four.
+ * @param many - form for five and above.
+ * @returns the word to print after the number.
+ */
+function plural(count: number, one: string, few: string, many: string): string {
+  const rest = count % 100
+  if (rest >= 11 && rest <= 14) return many
+  const last = count % 10
+  if (last === 1) return one
+  if (last >= 2 && last <= 4) return few
+  return many
+}
+
 /** Draw the status line pinned to the last row, dropping parts as width shrinks. */
-function drawStatus(buf: CellBuffer, rect: Rect | null, status: AppStatus, cols: number, running: boolean, tick: number): void {
+function drawStatus(buf: CellBuffer, rect: Rect | null, status: AppStatus, cols: number, running: boolean): void {
   if (rect === null || rect.h <= 0) return
   const percent = Math.round(status.contextPercent)
-  // While the model runs, the spinner leads the line and warms frame by frame,
-  // so "still thinking" is visible without reading the words.
-  const parts: Span[] = running
-    ? [
-        { text: spinnerFrame(tick), token: thinkingToken(tick) },
-        { text: ' ', token: 'Muted' },
-        { text: status.model, token: 'Text' },
-      ]
-    : [{ text: status.model, token: 'Text' }]
+  // While the model runs, the line answers "what is happening": a state word, the
+  // elapsed time, and who is on it. The model that answers is named in the header,
+  // so the line never mentions it twice.
+  const parts: Span[] = []
+  const counters: { text: string; token: TokenName }[] = []
+  if (status.agents !== undefined) {
+    counters.push({ text: `${String(status.agents)} ${plural(status.agents, 'агент', 'агента', 'агентов')}`, token: 'Muted' })
+  }
+  if (status.tasks !== undefined && status.tasks > 0) {
+    counters.push({ text: `${String(status.tasks)} ${plural(status.tasks, 'задача', 'задачи', 'задач')}`, token: 'Muted' })
+  }
+  if (running) {
+    parts.push({ text: '✦', token: 'Shimmer', bold: true }, { text: ' Working', token: 'Text' })
+    if (status.turnSeconds !== undefined) {
+      parts.push({ text: ' ', token: 'Muted' }, { text: elapsedLabel(status.turnSeconds * 1000), token: 'Muted' })
+    }
+  } else {
+    parts.push({ text: status.model, token: 'Text' })
+  }
+  // The context meter sits before the counters: at a narrow width the counters are
+  // the first thing that may go, and the meter is the fact the user asked to keep.
   const ctx: Span[] = [{ text: `ctx ${String(percent)}%`, token: 'Muted' }]
   if (cols >= 72) ctx.push({ text: ` ${progressBar(percent, 10)}`, token: 'Accent' })
   parts.push({ text: ' · ', token: 'Subtle' }, ...ctx)
+  for (const counter of counters) {
+    parts.push({ text: ' · ', token: 'Subtle' }, counter)
+  }
   if (cols >= 110 && status.costUsd !== undefined) {
     parts.push({ text: ' · ', token: 'Subtle' }, { text: `$${status.costUsd.toFixed(2)}`, token: 'Muted' })
   }
-  if (cols >= 80 && status.turnSeconds !== undefined) {
+  if (cols >= 80 && status.turnSeconds !== undefined && !running) {
     parts.push({ text: ' · ', token: 'Subtle' }, { text: `${status.turnSeconds.toFixed(1)}s`, token: 'Muted' })
   }
   if (cols >= 96 && status.tokens !== undefined) {
@@ -805,11 +882,8 @@ function drawStatus(buf: CellBuffer, rect: Rect | null, status: AppStatus, cols:
   if (cols >= 88 && status.branch !== undefined) {
     parts.push({ text: ' · ', token: 'Subtle' }, { text: `${status.branch}${status.dirty === true ? '*' : ''}`, token: 'Warn' })
   }
-  parts.push({ text: ' · ', token: 'Subtle' }, { text: status.mode, token: 'Accent' })
-  // The context meter and the model never leave the line: a running turn adds its
-  // own facts after them instead of taking their place.
-  parts.push({ text: ' · ', token: 'Subtle' }, { text: running ? 'running' : 'idle', token: running ? 'Warn' : 'Muted' })
-  if (running && cols >= 100) parts.push({ text: ' · ', token: 'Subtle' }, { text: 'esc прерывает ход', token: 'Muted' })
+  parts.push({ text: ' · ', token: 'Subtle' }, { text: status.mode, token: 'RoleBadge' })
+  if (running && cols >= 100) parts.push({ text: ' · ', token: 'Subtle' }, { text: 'Esc прерывает ход', token: 'Muted' })
 
   let column = rect.x + 2
   for (const span of parts) {

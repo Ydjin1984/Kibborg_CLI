@@ -106,6 +106,15 @@ export interface LogEntry {
   readonly meta?: string
   /** Stage verb, for `kind: 'stage'`. */
   readonly verb?: string
+  /**
+   * What the entry does, in words, when the raw body is not readable on its own.
+   *
+   * A tool call arrives as JSON; the transcript shows this sentence instead and
+   * keeps the JSON in {@link LogEntry.input} for the expanded layer.
+   */
+  readonly title?: string
+  /** Tool name, for the detail layer of `kind: 'tool'`. */
+  readonly toolName?: string
   /** Hotkey legend of the plan widget, for `kind: 'plan'`. */
   readonly keys?: string
   /**
@@ -208,6 +217,23 @@ export interface RenderOptions {
   readonly version?: number
   /** Lines drawn above the transcript, such as the welcome screen. */
   readonly leading?: readonly StyledLine[]
+  /**
+   * Entry of the newest answer.
+   *
+   * The answer a user is reading is never condensed, while the answers above it
+   * still fold, so the transcript stays short without hiding the conclusion.
+   * Set by {@link renderTranscript} from the entries it was given.
+   */
+  readonly lastAnswerId?: number
+}
+
+/** Identity of the newest answer in a transcript, or `undefined` when there is none. */
+function lastAnswer(entries: readonly LogEntry[]): number | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index]
+    if (entry !== undefined && entry.kind === 'assistant') return entry.id
+  }
+  return undefined
 }
 
 /** Indentation of transcript body text. */
@@ -221,6 +247,9 @@ const DETAIL_INDENT = '       '
 
 /** Indentation of a row inside a subagent's branch. */
 const BRANCH_INDENT = '  │  '
+
+/** Columns the walls of a delegation box occupy inside a row: `  │  ` and `  │`. */
+const WALL_WIDTH = 8
 
 /** Branch levels a deeper tree is drawn with; past it the transcript runs out of width. */
 const MAX_BRANCH_DEPTH = 4
@@ -369,7 +398,7 @@ function block(
 /** Build one line from a prefix, a wrapped body, and an optional trailing summary. */
 function compose(
   prefix: readonly Span[],
-  body: string,
+  body: string | undefined,
   bodyToken: TokenName,
   width: number,
   extra: { readonly anchor?: string; readonly heading?: boolean; readonly suffix?: readonly Span[] },
@@ -377,7 +406,9 @@ function compose(
   const prefixWidth = prefix.reduce((total, span) => total + displayWidth(span.text), 0)
   const suffixWidth = (extra.suffix ?? []).reduce((total, span) => total + displayWidth(span.text), 0)
   const budget = Math.max(1, width - prefixWidth - suffixWidth)
-  const bodyLines = wrapText(body, budget)
+  // A body-less row is the prefix plus its summary: the tool title carries the
+  // meaning, so there is nothing to wrap.
+  const bodyLines = body === undefined || body.trim() === '' ? [''] : wrapText(body, budget)
   return bodyLines.map((text, index) => {
     const spans: Span[] = index === 0
       ? [...prefix, { text, token: bodyToken }]
@@ -406,14 +437,46 @@ function compose(
   })
 }
 
-/** Tool glyph and its color for one lifecycle state. */
-function toolMark(
-  status: ToolStatus | undefined,
+/**
+ * Lay out one boxed row: the left part, a rule that fills the middle, the right
+ * part, and the corner that closes the row at the last column.
+ * @param left - spans already drawn at the left edge.
+ * @param right - spans drawn just before the corner.
+ * @param corner - the glyph that lands in the last column.
+ * @param width - columns available.
+ * @returns the spans of one row that is exactly `width` wide.
+ */
+function boxRow(left: readonly Span[], right: readonly Span[], corner: Span, width: number): Span[] {
+  const used = [...left, ...right].reduce((total, span) => total + displayWidth(span.text), 0)
+  const fill = Math.max(1, width - used - displayWidth(corner.text) - 3)
+  return [...left, { text: ` ${'─'.repeat(fill)} `, token: 'Subtle' }, ...right, corner]
+}
+
+/** Tools whose work is a delegation to another agent. */const DELEGATE_TOOLS: readonly string[] = ['executor', 'subagent', 'task', 'delegate']
+/** Tools whose work is a file. */
+const FILE_TOOLS: readonly string[] = ['read', 'read_file', 'readfile', 'write', 'create', 'write_file', 'edit', 'str_replace', 'str_replace_editor', 'multi_edit', 'apply_patch']
+/** Tools whose work is thinking about the task rather than acting on it. */
+const THINK_TOOLS: readonly string[] = ['skill', 'create_goal', 'goal', 'todo_write', 'todo', 'plan']
+
+/**
+ * Glyph and color of one row: what the agent is doing, not which tool it used.
+ *
+ * The agent's own color lives on its heading, so a row never mixes the two
+ * questions a reader asks — who is working, and what is happening.
+ */
+function actionMark(
+  entry: LogEntry,
   options: RenderOptions,
 ): { readonly glyph: string; readonly token: TokenName } {
-  if (status === 'ok') return { glyph: '✓', token: 'Success' }
-  if (status === 'fail') return { glyph: '✗', token: 'Error' }
-  return { glyph: options.runningGlyph ?? '⚙', token: 'Accent' }
+  const name = entry.toolName ?? entry.name ?? ''
+  if (entry.status === 'fail') return { glyph: '✕', token: 'Error' }
+  // A delegation keeps its own arrow even while it runs: the row says what the
+  // agent is doing, and "passing work on" is not the same as "running a command".
+  if (DELEGATE_TOOLS.includes(name)) return { glyph: '→', token: 'ActionDelegate' }
+  if (entry.status === 'running') return { glyph: options.runningGlyph ?? '◐', token: 'ActionTool' }
+  if (FILE_TOOLS.includes(name)) return { glyph: '▣', token: 'ActionFile' }
+  if (THINK_TOOLS.includes(name)) return { glyph: '◌', token: 'ActionThink' }
+  return { glyph: '✓', token: 'Success' }
 }
 
 /**
@@ -462,20 +525,17 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
       // The answer is Markdown, so it is rendered rather than printed: headings,
       // lists, tables, and code keep their shape, and a link or path stays
       // clickable. The answer as a whole is the conclusion of the turn, so it
-      // carries its own color and its opening line is bold.
+      // carries its own color. The newest answer is never condensed — that is the
+      // text the user came to read — while older ones fold like any long block.
       const rendered = renderMarkdown(entry.text, {
         width: Math.max(8, width - INDENT.length),
         ...(options.hyperlinks === true ? { hyperlinks: true } : {}),
         textToken: 'Answer',
       })
-      const first = rendered.findIndex(line => line.spans.some(span => span.text.trim() !== ''))
-      const styled = rendered.map((line, index) => fitLine({
-        spans: [
-          { text: INDENT, token: 'Muted' },
-          ...line.spans.map(span => (index === first ? { ...span, bold: true } : span)),
-        ],
+      const styled = rendered.map(line => fitLine({
+        spans: [{ text: INDENT, token: 'Muted' }, ...line.spans],
       }, width))
-      return condense(styled, entry, width)
+      return options.lastAnswerId === entry.id ? styled : condense(styled, entry, width)
     }
     case 'stage': {
       const glyph = options.runningGlyph ?? '✳'
@@ -494,14 +554,12 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
       return compose(prefix, entry.text, 'Muted', width, { suffix })
     }
     case 'tool': {
-      const mark = toolMark(entry.status, options)
-      const shell = entry.name === 'bash' || entry.name === 'shell'
+      const action = actionMark(entry, options)
       const prefix: Span[] = [
         { text: TOOL_INDENT, token: 'Muted' },
-        { text: mark.glyph, token: mark.token },
+        { text: action.glyph, token: action.token },
         { text: '  ', token: 'Muted' },
-        { text: entry.name ?? 'tool', token: shell ? 'BashPink' : 'Muted' },
-        { text: '   ', token: 'Muted' },
+        { text: entry.title ?? entry.text, token: 'Text' },
       ]
       const suffix: Span[] = []
       if (entry.added !== undefined || entry.removed !== undefined) {
@@ -514,12 +572,22 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
         suffix.push({ text: `   ${entry.durationMs < 1000 ? `${String(Math.round(entry.durationMs))}ms` : `${(entry.durationMs / 1000).toFixed(1)}s`}`, token: 'Muted', dim: true })
       }
       if (entry.meta !== undefined && entry.meta !== '') suffix.push({ text: `   ${entry.meta}`, token: 'Muted', dim: true })
-      const lines = compose(prefix, entry.text, 'Text', width, { suffix })
-      // Everything a tool sent and received is shown, wrapped rather than cut:
-      // a user has to be able to read the command and its answer, and a change
-      // has to be visible line by line. Only an extreme block is elided, and
-      // never silently.
       const detail = entry.detail ?? []
+      // What the tool sent and received is the second layer: the first line says
+      // what the agent is doing, and this row says how much detail is behind it.
+      const hasDetail = (entry.input ?? '').trim() !== ''
+        || (entry.output ?? '').trim() !== ''
+        || (entry.diff ?? []).length > 0
+        || detail.length > 0
+      if (hasDetail && entry.expanded !== true) {
+        const hidden = [entry.input === undefined ? undefined : 'аргументы', entry.output === undefined ? undefined : 'вывод', (entry.diff ?? []).length === 0 ? undefined : 'diff']
+          .filter((part): part is string => part !== undefined)
+        suffix.push({ text: `   ▸ ${hidden.join(' · ')}`, token: 'Accent' })
+      }
+      const lines = compose(prefix, undefined, 'Text', width, { suffix })
+      if (hasDetail && entry.expanded !== true) {
+        return lines.map(line => fitLine({ ...line, entryId: entry.id, collapsed: true }, width))
+      }
       for (const line of detail) {
         for (const wrapped of wrapText(line, Math.max(1, width - DETAIL_INDENT.length - 4))) {
           lines.push({
@@ -531,14 +599,14 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
           })
         }
       }
-      if (entry.input !== undefined && entry.input.trim() !== '') {
-        lines.push(...block('IN ', entry.input.split('\n'), width, 'Text'))
+      if ((entry.input ?? '').trim() !== '') {
+        lines.push(...block('IN ', (entry.input ?? '').split('\n'), width, 'Text'))
       }
-      if (entry.diff !== undefined && entry.diff.length > 0) {
-        lines.push(...block(undefined, entry.diff, width, 'Muted', true))
+      if ((entry.diff ?? []).length > 0) {
+        lines.push(...block(undefined, entry.diff ?? [], width, 'Muted', true))
       }
-      if (entry.output !== undefined && entry.output.trim() !== '') {
-        lines.push(...block('OUT', entry.output.split('\n'), width, 'Muted'))
+      if ((entry.output ?? '').trim() !== '') {
+        lines.push(...block('OUT', (entry.output ?? '').split('\n'), width, 'Muted'))
       }
       return condense(lines, entry, width)
     }
@@ -548,8 +616,50 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
       const badge = entry.agent
       const token = badge?.token ?? 'Accent'
       const done = badge?.state === 'done'
-      const glyph = done ? '✓' : badge === undefined || badge.depth === 0 ? '◆' : '◇'
-      const branch = badge === undefined || badge.depth === 0 ? INDENT : `  ${done ? '└─' : '├─'} `
+      if (badge !== undefined && badge.depth > 0) {
+        // A delegation is drawn as a box: its title carries who is working, its
+        // role, and its state, and the rows of that agent run between the walls.
+        const lead = BRANCH_INDENT.repeat(Math.min(Math.max(0, badge.depth - 1), MAX_BRANCH_DEPTH))
+        const tail: Span = { text: done ? '┘' : '┐', token: 'Subtle' }
+        const state: Span[] = [
+          { text: `${done ? '✔ DONE' : '◐ WORKING'} `, token: done ? 'Success' : 'ActionDelegate' },
+        ]
+        const head: Span[] = [{ text: `${lead}  ${done ? '└─ ✓' : '┌─ ◐'}`, token: done ? 'Success' : 'ActionDelegate' }]
+        // The name, the model, and the role are fitted into what the frame has
+        // left, so the row keeps its corners on a narrow terminal instead of being
+        // cut by the region.
+        const chrome = lead.length + 3 + state.reduce((total, span) => total + displayWidth(span.text), 0) + displayWidth(tail.text) + 3
+        let room = Math.max(8, width - chrome)
+        const label = takeHeadWidth(badge.label, Math.max(6, Math.min(room, 32)))
+        head.push({ text: `  ${label}`, token, bold: true })
+        room -= displayWidth(label) + 2
+        // The closing row repeats only the name: the model and the role were read
+        // on the row that opened the box, a few lines above.
+        if (!done && badge.model !== undefined && badge.model !== '' && displayWidth(badge.model) + 3 <= room) {
+          head.push({ text: '   ', token: 'Muted' }, { text: badge.model, token: 'Subtle', dim: true })
+          room -= displayWidth(badge.model) + 3
+        }
+        if (!done && badge.role !== undefined && badge.role !== '' && displayWidth(badge.role) + 3 <= room) {
+          head.push({ text: '   ', token: 'Muted' }, { text: badge.role, token: 'RoleBadge' })
+        }
+        const lines: StyledLine[] = [fitLine({ spans: boxRow(head, state, tail, width) }, width)]
+        if (entry.text.trim() !== '') {
+          for (const wrapped of wrapText(entry.text, Math.max(1, width - lead.length - 8))) {
+            lines.push(fitLine({
+              spans: [
+                { text: `${lead}  │  `, token: 'Subtle' },
+                { text: wrapped, token: 'Text' },
+                { text: `${' '.repeat(Math.max(0, width - lead.length - 8 - displayWidth(wrapped)))}  │`, token: 'Subtle' },
+              ],
+            }, width))
+          }
+        }
+        return done
+          ? lines.map(line => ({ ...line, entryId: entry.id, collapsed: true }))
+          : lines
+      }
+      const glyph = done ? '✓' : '◆'
+      const branch = INDENT
       const spans: Span[] = [
         { text: branch, token: 'Subtle' },
         { text: glyph, token: done ? 'Success' : token, bold: true },
@@ -560,7 +670,7 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
         spans.push({ text: '   ', token: 'Muted' }, { text: badge.model, token: 'Subtle', dim: true })
       }
       if (badge?.role !== undefined && badge.role !== '') {
-        spans.push({ text: '   ', token: 'Muted' }, { text: badge.role, token: 'Muted', bold: true })
+        spans.push({ text: '   ', token: 'Muted' }, { text: badge.role, token: 'RoleBadge', bold: true })
       }
       const lines: StyledLine[] = [fitLine({ spans }, width)]
       if (entry.text.trim() !== '') {
@@ -694,14 +804,33 @@ function renderEntryCached(entry: LogEntry, width: number, options: RenderOption
   // A subagent's rows are indented under its branch, so the indent is part of what
   // the entry renders to and therefore part of its cache key.
   const depth = entry.kind === 'agent' ? 0 : entry.agent?.depth ?? 0
-  const branch = depth > 0 ? BRANCH_INDENT.repeat(Math.min(depth, MAX_BRANCH_DEPTH)) : ''
-  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}`
+  // A box needs room for both walls and something to say between them; a narrower
+  // region falls back to the plain indent rather than drawing past the frame.
+  const wall = depth > 0 && entry.agent !== undefined && width >= WALL_WIDTH + 12
+  // The walls replace the branch indent inside a box; a deeper tree keeps its own
+  // indent to the left of them.
+  const lead = depth > 1 ? BRANCH_INDENT.repeat(Math.min(depth - 1, MAX_BRANCH_DEPTH)) : ''
+  const answerRole = entry.id === options.lastAnswerId ? 'last' : 'past'
+  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}`
   const cached = ENTRY_CACHE.get(entry.id)
   if (cached !== undefined && cached.key === key) return cached.lines
-  const inner = renderEntry(entry, Math.max(8, width - branch.length), options, now)
-  const lines = branch === ''
+  // A row inside a delegation sits between the walls of its box; the walls take
+  // their columns from the row's budget so nothing is drawn past the frame.
+  const inside = Math.max(1, width - lead.length - (wall ? WALL_WIDTH : 0))
+  const inner = renderEntry(entry, inside, options, now)
+  const lines = lead === '' && !wall
     ? inner
-    : inner.map(line => ({ ...line, spans: [{ text: branch, token: 'Subtle' as TokenName }, ...line.spans] }))
+    : inner.map(line => {
+      const spans: Span[] = [{ text: lead, token: 'Subtle' as TokenName }]
+      if (wall) spans.push({ text: '  │  ', token: 'Subtle' })
+      spans.push(...line.spans)
+      if (!wall) return { ...line, spans }
+      const used = spans.reduce((total, span) => total + displayWidth(span.text), 0)
+      return {
+        ...line,
+        spans: [...spans, { text: `${' '.repeat(Math.max(0, width - used - 3))}  │`, token: 'Subtle' as TokenName }],
+      }
+    })
   ENTRY_CACHE.set(entry.id, { lines, key })
   trimEntryCache()
   return lines
@@ -769,6 +898,7 @@ let transcriptCache: {
   readonly hyperlinks: boolean
   readonly tick: number
   readonly leading: readonly StyledLine[] | undefined
+  readonly lastAnswerId: number | undefined
   readonly state: TranscriptState
 } | undefined
 
@@ -808,7 +938,8 @@ export function renderTranscript(
     && cached.version === options.version
     && cached.hyperlinks === hyperlinks
     && cached.tick === tick
-    && cached.leading === options.leading) {
+    && cached.leading === options.leading
+    && cached.lastAnswerId === options.lastAnswerId) {
     return cached.state
   }
   const state: TranscriptState = cached?.state ?? { parts: [], tops: [], total: 0 }
@@ -829,13 +960,54 @@ export function renderTranscript(
   }
   const leading = options.leading
   if (leading !== undefined) push(leading)
+  const last = lastAnswer(entries)
   const live = new Set<number>()
   let lastLine: StyledLine | undefined
+  const perEntry: RenderOptions = { ...options, ...(last === undefined ? {} : { lastAnswerId: last }) }
+  // A delegation that finished folds to its frame plus one row that says how much
+  // is behind it: the transcript then reads as a plan, and the detail of a branch
+  // is one click away. A branch still running stays open — that is the live view.
+  const folded = new Map<string, number>()
+  const branchKey = (badge: AgentBadge): string => badge.sessionId ?? `${badge.label}|${String(badge.depth)}`
+  for (const entry of entries) {
+    const badge = entry.agent
+    if (entry.kind !== 'agent' || badge === undefined || badge.depth === 0) continue
+    if (badge.state !== 'done' || entry.expanded === true) continue
+    folded.set(branchKey(badge), entry.id)
+  }
+  const hidden = new Map<string, number>()
+  for (const entry of entries) {
+    const badge = entry.agent
+    if (badge === undefined || !folded.has(branchKey(badge)) || entry.kind === 'agent') continue
+    hidden.set(branchKey(badge), (hidden.get(branchKey(badge)) ?? 0) + 1)
+  }
   for (const entry of entries) {
     live.add(entry.id)
+    const badge = entry.agent
+    const key = badge === undefined ? undefined : branchKey(badge)
+    const inFolded = key !== undefined && folded.has(key)
+    if (inFolded && key !== undefined && entry.kind !== 'agent') continue
+    // The count of a folded branch belongs inside its box, so it is written before
+    // the row that closes the branch.
+    if (inFolded && key !== undefined && entry.kind === 'agent' && entry.agent?.state === 'done') {
+      const count = hidden.get(key) ?? 0
+      const target = folded.get(key)
+      if (count > 0 && target !== undefined) {
+        const marker = fitLine({
+          spans: [
+            { text: '  │  ', token: 'Subtle' },
+            { text: `⋯ ${String(count)} ${count === 1 ? 'шаг' : 'шагов'} этой ветки — клик, чтобы развернуть`, token: 'ActionDelegate' },
+          ],
+          entryId: target,
+          collapsed: true,
+        }, width)
+        push([marker])
+        lastLine = marker
+      }
+    }
     const separated = entry.kind === 'user' || entry.kind === 'assistant' || entry.kind === 'stage' || entry.kind === 'plan'
     if (separated && lastLine !== undefined && plainText(lastLine).trim() !== '') push(SEPARATOR)
-    const lines = renderEntryCached(entry, width, options, now)
+    const lines = renderEntryCached(entry, width, perEntry, now)
     push(lines)
     lastLine = lines[lines.length - 1] ?? lastLine
   }
@@ -846,7 +1018,7 @@ export function renderTranscript(
   if (ENTRY_CACHE.size > live.size) {
     for (const id of [...ENTRY_CACHE.keys()]) if (!live.has(id)) ENTRY_CACHE.delete(id)
   }
-  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, state }
+  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, lastAnswerId: options.lastAnswerId, state }
   return state
 }
 

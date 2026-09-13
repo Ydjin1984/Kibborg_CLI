@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import { createTurnRenderer, type Palette, type ToolResultDetail, type TurnRenderer } from '@kibborg/tui'
-import { prettyArguments } from './arguments.ts'
+import { prettyArguments, toolTitle } from './arguments.ts'
 import { createAgentTracker, type AgentObservation } from './agents.ts'
 import {
   answerApproval,
@@ -94,6 +94,14 @@ export interface TurnOptions {
   readonly questions?: { readonly policy: HeadlessQuestionPolicy; readonly answersFile?: string }
   /** Observes every session event of this turn, in order, for machine output. */
   readonly onEvent?: (event: SessionEvent) => void
+  /**
+   * Reports how much work the run has in flight.
+   *
+   * The surface shows it in the status line, so a long delegation is visibly
+   * progressing instead of leaving the user with a spinner and no facts.
+   * @param progress - agents on the run and tool calls made so far.
+   */
+  readonly onProgress?: (progress: { readonly agents: number; readonly tasks: number }) => void
   /** Stop after this many turns of this session, cancelling the one in flight. */
   readonly maxTurns?: number
   /**
@@ -468,6 +476,7 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
     announced = sessionId
     announcedDetail = undefined
     renderer.agent?.(agents.root())
+    options.onProgress?.({ agents: agents.count(), tasks: renderer.toolCount() })
   }
   const finish = (kind: string, errorMessage?: string): TurnOutcome => {
     renderer.closeAnswer()
@@ -549,12 +558,18 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
       if (observation === undefined) continue
       if (payload.event.type === 'tool/call') {
         announce(observation)
-        renderer.toolCall(payload.event.data.name, summarizeArguments(payload.event.data.arguments), undefined)
+        renderer.toolCall(
+          payload.event.data.name,
+          summarizeArguments(payload.event.data.arguments),
+          { title: toolTitle(payload.event.data.name, payload.event.data.arguments) },
+        )
+        options.onProgress?.({ agents: agents.count(), tasks: renderer.toolCount() })
       } else if (payload.event.type === 'tool/result') {
         announce(observation)
         const name = (payload.event.data as { readonly name?: string }).name ?? 'tool'
         if ((payload.event.data as { readonly error?: unknown }).error !== undefined) renderer.toolFailure(name, 'failed')
         else renderer.toolDone?.(name)
+        options.onProgress?.({ agents: agents.count(), tasks: renderer.toolCount() })
       } else {
         announce(observation)
       }
@@ -602,15 +617,19 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
       toolStarts.set(event.data.name, Date.now())
       const input = prettyArguments(event.data.arguments)
       const change = argumentDiff(event.data.name, event.data.arguments)
+      // The row says what the agent is doing; the raw arguments stay behind the
+      // expandable detail layer rather than being the transcript's main text.
       const detail = {
+        title: toolTitle(event.data.name, event.data.arguments),
         ...(input === undefined ? {} : { input }),
         ...(change ?? {}),
       }
       renderer.toolCall(
         event.data.name,
         summarizeArguments(event.data.arguments),
-        Object.keys(detail).length === 0 ? undefined : detail,
+        detail,
       )
+      options.onProgress?.({ agents: agents.count(), tasks: renderer.toolCount() })
       continue
     }
     if (event.type === 'tool/result') {

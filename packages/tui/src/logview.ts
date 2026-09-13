@@ -20,6 +20,14 @@ export interface LogViewState {
   readonly follow: boolean
 }
 
+/** One transcript line and the frame row it was painted on. */
+export interface PaintedRow {
+  /** Absolute row in the frame buffer. */
+  readonly row: number
+  /** The line painted there. */
+  readonly line: StyledLine
+}
+
 /** Where the viewport ended up after drawing. */
 export interface LogViewResult {
   /** Offset actually used. */
@@ -30,6 +38,14 @@ export interface LogViewResult {
   readonly sticky: string | null
   /** The rows the viewport shows, top to bottom. */
   readonly visible: readonly StyledLine[]
+  /**
+   * Every painted row with its frame position.
+   *
+   * The pinned heading shifts the content down by one row, so a caller that maps a
+   * pointer position to a line has to read the mapping the view produced instead
+   * of recomputing it from the scroll offset.
+   */
+  readonly painted: readonly PaintedRow[]
 }
 
 /**
@@ -54,7 +70,7 @@ function isTranscript(source: LogSource): source is Transcript {
  */
 export function drawLogView(buf: CellBuffer, rect: Rect, source: LogSource, state: LogViewState): LogViewResult {
   const total = isTranscript(source) ? source.total : source.length
-  if (rect.w <= 0 || rect.h <= 0) return { offset: 0, total, sticky: null, visible: [] }
+  if (rect.w <= 0 || rect.h <= 0) return { offset: 0, total, sticky: null, visible: [], painted: [] }
   const maxOffset = Math.max(0, total - rect.h)
   const offset = state.follow ? maxOffset : clampScroll(state.offset, total, rect.h)
   const visible = isTranscript(source)
@@ -69,9 +85,11 @@ export function drawLogView(buf: CellBuffer, rect: Rect, source: LogSource, stat
     buf.write(rect.x, rect.y, sticky, 'Muted', { dim: true })
     row = 1
   }
+  const painted: PaintedRow[] = []
   for (const line of visible) {
     if (row >= rect.h) break
     paintStyledLine(buf, rect.x, rect.y + row, rect.w, line)
+    painted.push({ row: rect.y + row, line })
     row += 1
   }
 
@@ -89,7 +107,7 @@ export function drawLogView(buf: CellBuffer, rect: Rect, source: LogSource, stat
     buf.write(x, rect.y + rect.h - 1, label, 'Muted', { dim: true })
   }
   if (total > rect.h && rect.w >= 2) drawScrollbar(buf, rect, offset, maxOffset)
-  return { offset, total, sticky, visible }
+  return { offset, total, sticky, visible, painted }
 }
 
 /**

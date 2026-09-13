@@ -38,6 +38,8 @@ export interface TurnRendererOptions {
 
 /** What a tool call carries besides its short label. */
 export interface ToolCallDetail {
+  /** What the call does in words, shown instead of the raw arguments. */
+  readonly title?: string
   /** The argument JSON exactly as the model produced it. */
   readonly input?: string
   /** Lines of the change the call is about to make, `+`/`-` marked. */
@@ -193,9 +195,10 @@ export function createTurnRenderer(options: TurnRendererOptions): TurnRenderer {
     },
     toolCall(name, argument, call) {
       tools += 1
-      const shown = argument === undefined || argument === '' ? '' : `   ${palette.paint(argument, 'Text')}`
+      const shown = call?.title ?? argument
+      const line = shown === undefined || shown === '' ? '' : `   ${palette.paint(shown, 'Text')}`
       const counts = changeCounts(palette, call?.added, call?.removed)
-      sink.write(`\n    ${palette.paint('⚙', 'Accent')}  ${palette.paint(name, 'Muted')}${shown}${counts}\n`)
+      sink.write(`\n    ${palette.paint('⚙', 'ActionTool')}  ${palette.paint(name, 'Muted')}${line}${counts}\n`)
       if (call?.input !== undefined && call.input.trim() !== '') {
         writeBlock(sink, palette, 'IN ', call.input.split('\n'))
       }

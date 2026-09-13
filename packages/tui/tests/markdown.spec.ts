@@ -36,12 +36,24 @@ describe('renderMarkdown', () => {
     expect(lines.some(line => line.includes('```'))).toBe(false)
   })
 
-  it('numbers and bullets list items', () => {
+  it('numbers and bullets list items, marking each level', () => {
     const lines = rows(['- один', '  - вложенный', '1. первый', '2. второй'].join('\n'))
     expect(lines[0]).toContain('• один')
-    expect(lines[1]).toContain('• вложенный')
+    // A nested item carries its own marker, so the two levels are distinguishable
+    // without counting leading spaces.
+    expect(lines[1]).toContain('◦ вложенный')
     expect(lines[2]).toContain('1. первый')
     expect(lines[3]).toContain('2. второй')
+  })
+
+  it('sets every block off from the prose around it', () => {
+    const lines = rows(['Проза.', '# Заголовок', 'Ещё проза.', '```sh', 'go test ./...', '```', '- пункт'].join('\n'))
+    // Each block starts after a blank row, so nothing runs together.
+    expect(lines[1]).toBe('')
+    expect(lines.join('\n')).toContain('┌─ sh')
+    expect(lines.join('\n')).toContain('└─')
+    const beforeBullet = lines[lines.findIndex(line => line.includes('• пункт')) - 1]
+    expect(beforeBullet).toBe('')
   })
 
   it('marks a link as a hyperlink target instead of inlining escape codes', () => {
