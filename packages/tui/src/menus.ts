@@ -21,8 +21,6 @@ export interface MenuItem {
   readonly name: string
   /** One-line description. */
   readonly desc: string
-  /** Key that triggers the same action, when one exists. */
-  readonly key?: string
 }
 
 /** Palette state. */
@@ -61,21 +59,27 @@ export interface DialogView {
   readonly passthroughArrows?: boolean
 }
 
-/** Description, group, and key of the commands the surface knows by name. */
-const COMMAND_META: Readonly<Record<string, { readonly group: string; readonly desc: string; readonly key?: string }>> = {
-  new: { group: 'SESSION', desc: 'clear + fresh', key: 'ctrl+n' },
-  resume: { group: 'SESSION', desc: 'session picker', key: 'f3' },
+/**
+ * Description and group of the commands the surface knows by name.
+ *
+ * The palette lists names, not keys: a key printed beside a command has to work
+ * there, and a hint nobody implemented reads as a broken key rather than as a
+ * shortcut the surface does not have.
+ */
+const COMMAND_META: Readonly<Record<string, { readonly group: string; readonly desc: string }>> = {
+  new: { group: 'SESSION', desc: 'clear + fresh' },
+  resume: { group: 'SESSION', desc: 'session picker' },
   sessions: { group: 'SESSION', desc: 'list sessions' },
   fork: { group: 'SESSION', desc: 'branch this session' },
   rename: { group: 'SESSION', desc: 'rename this session' },
   compact: { group: 'SESSION', desc: 'squeeze context' },
   home: { group: 'SESSION', desc: 'welcome screen' },
-  quit: { group: 'SESSION', desc: 'leave the surface', key: 'ctrl+q' },
+  quit: { group: 'SESSION', desc: 'leave the surface' },
   exit: { group: 'SESSION', desc: 'leave the surface' },
-  model: { group: 'MODEL', desc: 'switch model', key: 'ctrl+m' },
+  model: { group: 'MODEL', desc: 'switch model' },
   effort: { group: 'MODEL', desc: 'reasoning depth' },
   status: { group: 'MODEL', desc: 'current settings' },
-  plan: { group: 'MODE', desc: 'plan-only, no writes', key: 's-tab' },
+  plan: { group: 'MODE', desc: 'plan-only, no writes' },
   ask: { group: 'MODE', desc: 'read-only' },
   agent: { group: 'MODE', desc: 'write with approval' },
   yolo: { group: 'MODE', desc: 'always-approve' },
@@ -112,7 +116,7 @@ const GROUP_ORDER: readonly string[] = ['SESSION', 'MODEL', 'MODE', 'CONTEXT', '
 /**
  * Build palette entries for the commands a surface registers.
  * @param names - command names, with or without their leading slash.
- * @returns entries sorted by group and name, with the description and key of each known command.
+ * @returns entries sorted by group and name, with the description of each known command.
  */
 export function commandMenuItems(names: readonly string[]): readonly MenuItem[] {
   const unique = [...new Set(names.map(raw => raw.replace(/^\//u, '')))]
@@ -122,7 +126,6 @@ export function commandMenuItems(names: readonly string[]): readonly MenuItem[] 
       group: meta?.group ?? 'OTHER',
       name: `/${clean}`,
       desc: meta?.desc ?? 'команда сессии',
-      ...(meta?.key === undefined ? {} : { key: meta.key }),
     }
   })
   return items.sort((left, right) => {
@@ -185,19 +188,15 @@ export function renderMenu(items: readonly MenuItem[], state: MenuState, width: 
     }
     const active = index === selected
     // The name column fits the longest entry in view, so a long model id never
-    // runs into its description; the description then shrinks to whatever is
-    // left of the frame.
+    // runs into its description; the description then takes what is left.
     const nameWidth = Math.max(10, Math.min(28, filtered.reduce((max, entry) => Math.max(max, displayWidth(entry.name)), 0) + 2))
-    const keyWidth = 8
-    const descWidth = Math.max(8, width - nameWidth - keyWidth - 5)
+    const descWidth = Math.max(8, width - nameWidth - 5)
     const desc = padRight(takeHeadWidth(item.desc, descWidth), descWidth)
-    const key = item.key === undefined ? '' : padRight(item.key, keyWidth)
     const spans: Span[] = [
       { text: active ? ' ▸ ' : '   ', token: active ? 'Accent' : 'Muted' },
       ...nameSpans(item.name, query, nameWidth),
       { text: desc, token: 'Muted' },
     ]
-    if (item.key !== undefined) spans.push({ text: key, token: 'Muted', dim: true })
     lines.push({ spans: fit(spans, width) })
   }
 

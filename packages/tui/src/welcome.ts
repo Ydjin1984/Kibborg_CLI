@@ -62,19 +62,19 @@ const WORDMARK: readonly string[] = [
 /** The action legend of the welcome screen. */
 const ACTIONS: readonly (readonly [string, string])[] = [
   ['[enter]', 'New session'],
-  ['[f3]', 'Resume picker'],
-  ['[ctrl+w]', 'Isolated worktree'],
-  ['[ctrl+p]', 'Command palette'],
   ['[/]', 'Commands'],
+  ['[tab]', 'Transcript focus'],
+  ['[shift+tab]', 'Permission mode'],
+  ['[ctrl+x]', 'Keys'],
 ]
 
 /** One rotating hint, replaced by onboarding instead of `/help`. */
 const TIPS: readonly string[] = [
-  'Shift+Tab cycles Ask → Plan → Agent → YOLO',
+  'Shift+Tab cycles the permission presets the host mounts',
   '/ opens the command palette; @ completes files',
   'Tab moves between the transcript and the prompt',
   'select text with the terminal itself; the mouse stays yours',
-  'PgUp/PgDn page the transcript; Ctrl+Q leaves',
+  'PgUp/PgDn page the transcript; Ctrl+D leaves',
 ]
 
 /** Build a line from a single styled span. */
@@ -156,10 +156,13 @@ export function renderWelcome(state: WelcomeState, width: number, height: number
     lines.push({ spans: [] })
   }
 
-  for (const [key, label] of ACTIONS) {
+  // The key column fits the longest binding it lists, so a longer name never runs
+  // into the action it belongs to.
+  const keyWidth = ACTIONS.reduce((widest, [binding]) => Math.max(widest, displayWidth(binding)), 0) + 2
+  for (const [binding, label] of ACTIONS) {
     lines.push({
       spans: [
-        { text: `  ${key.padEnd(9)}`, token: 'Accent' },
+        { text: `  ${padRight(binding, keyWidth)}`, token: 'Accent' },
         { text: label, token: 'Text' },
       ],
     })

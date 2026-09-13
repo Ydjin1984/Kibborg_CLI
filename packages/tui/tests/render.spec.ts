@@ -8,6 +8,7 @@ import {
   composerFrame,
   composerLines,
   composerView,
+  commandMenuItems,
   contextBar,
   createTurnRenderer,
   displayWidth,
@@ -16,6 +17,7 @@ import {
   padLeft,
   padRight,
   plainPalette,
+  renderMenu,
   statusLine,
   takeTailWidth,
   turnFooter,
@@ -149,6 +151,21 @@ describe('composer', () => {
     )
     // The marker is visible on the row above and says how much is hidden.
     expect(frame.lines[1]).toContain('▲ +4')
+  })
+})
+
+describe('command palette', () => {
+  it('lists names and descriptions without promising keys', () => {
+    const items = commandMenuItems(['new', 'model', 'quit', 'resume', 'plan'])
+    const lines = renderMenu(items, { query: '', selected: 0 }, 90).lines.map(line => line.spans.map(span => span.text).join(''))
+    const text = lines.join('\n')
+    expect(text).toContain('/new')
+    expect(text).toContain('clear + fresh')
+    // A key printed beside a command has to work there: the surface implements none
+    // of these, so the palette must not advertise them.
+    for (const hint of ['ctrl+n', 'ctrl+q', 'ctrl+m', 'ctrl+p', 'f3', 's-tab']) {
+      expect(text).not.toContain(hint)
+    }
   })
 })
 
