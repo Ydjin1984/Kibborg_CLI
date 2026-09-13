@@ -19,7 +19,7 @@ export interface StatusInput {
   /** Turn cost in dollars, when the deployment reports one. */
   readonly costUsd?: number
   /** Elapsed seconds of the current or last turn. */
-  readonly turnSeconds?: number
+  readonly turnSeconds?: number | undefined
   /** Current git branch, when the project is a repository. */
   readonly branch?: string
   /** Whether the worktree has uncommitted changes. */
@@ -33,15 +33,15 @@ export interface StatusInput {
   /** Token painting the spinner, which warms while the turn runs. */
   readonly spinnerToken?: TokenName
   /** Tokens the turn has moved so far, shown beside the elapsed time. */
-  readonly tokens?: number
+  readonly tokens?: number | undefined
   /** Short hint appended while the line has room, such as how to interrupt. */
   readonly hint?: string
   /** Whether a turn is running, which decides the leading word. */
   readonly running?: boolean
   /** How many agents are working on this run, including the one the user talks to. */
-  readonly agents?: number
+  readonly agents?: number | undefined
   /** How many tool calls the run has made so far. */
-  readonly tasks?: number
+  readonly tasks?: number | undefined
 }
 
 /** The Russian plural form of a count, for the words the status line uses. */
@@ -97,6 +97,30 @@ export function formatTokens(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}k`
   return String(count)
+}
+
+/**
+ * The two strings a composer's bottom border carries.
+ *
+ * The status names the model and the mode the way the reference CLIs do, and
+ * while a turn runs it reports the turn instead of naming the model twice. The
+ * counters are the run's scale; they belong at the right corner, because at a
+ * narrow width they are the first thing that may go.
+ * @param input - the session values to report.
+ * @returns the border's left label and right counters, without color.
+ */
+export function composerFacts(input: StatusInput): { readonly status: string; readonly counters: string } {
+  const running = input.running === true || input.spinner !== undefined
+  const lead = running
+    ? `Working${input.turnSeconds === undefined ? '' : ` ${elapsedLabel(input.turnSeconds * 1000)}`}`
+    : input.model
+  const counters: string[] = []
+  if (input.agents !== undefined) counters.push(`${String(input.agents)} ${plural(input.agents, 'агент', 'агента', 'агентов')}`)
+  if (input.tasks !== undefined && input.tasks > 0) counters.push(`${String(input.tasks)} ${plural(input.tasks, 'задача', 'задачи', 'задач')}`)
+  if (input.cols >= 76 && input.tokens !== undefined) counters.push(`${formatTokens(input.tokens)} tok`)
+  if (input.cols >= 92 && input.turnSeconds !== undefined && !running) counters.push(`${input.turnSeconds.toFixed(1)}s`)
+  if (input.cols >= 110 && input.costUsd !== undefined) counters.push(`$${input.costUsd.toFixed(2)}`)
+  return { status: `${lead} · ${input.mode}`, counters: counters.join(' · ') }
 }
 
 /**

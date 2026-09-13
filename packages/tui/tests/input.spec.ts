@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   appendHistory,
+  COMPOSER_RUNNING_HINT,
   cursorTo,
   cursorUp,
   displayWidth,
@@ -91,7 +92,7 @@ describe('history', () => {
 })
 
 describe('zone', () => {
-  it('renders overlay, composer and status rows within the width', () => {
+  it('renders overlay and composer rows within the width', () => {
     const lines = zoneLines({
       draft: '/mo',
       innerWidth: 80,
@@ -100,12 +101,31 @@ describe('zone', () => {
       cols: 84,
       overlay: ['  /model', '  /mcp'],
     }, plainPalette)
-    expect(lines).toHaveLength(2 + 4 + 1)
+    // The composer is a box of three rows above a non-empty draft: two borders and
+    // the draft row. The session facts sit inside the bottom border.
+    expect(lines).toHaveLength(2 + 3)
     expect(lines[0]).toBe('  /model')
-    expect(lines[6]).toContain('ctx 12%')
+    expect(lines[4]).toContain('m · Agent')
     for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(84)
-    expect(zoneHeight(2)).toBe(7)
-    expect(zoneHeight()).toBe(5)
+    expect(zoneHeight(2)).toBe(6)
+    expect(zoneHeight(2, 4)).toBe(6)
+    expect(zoneHeight()).toBe(4)
+  })
+
+  it('reports the running turn and the key that stops it', () => {
+    const lines = zoneLines({
+      draft: '',
+      innerWidth: 80,
+      showHint: true,
+      status: { model: 'm', contextPercent: 12, mode: 'Agent', running: true, turnSeconds: 4 },
+      cols: 84,
+    }, plainPalette)
+    const text = lines.join('\n')
+    // The zone has no header, so the border is the only place that can say a turn
+    // is running and which key cancels it.
+    expect(text).toContain('Working 4.0s · Agent')
+    expect(text).toContain(COMPOSER_RUNNING_HINT)
+    expect(text).not.toContain('model ·')
   })
 
   it('emits cursor helpers only when they move something', () => {

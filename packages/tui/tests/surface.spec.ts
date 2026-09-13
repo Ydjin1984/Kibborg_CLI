@@ -155,13 +155,13 @@ describe('mouse decoding', () => {
     }
     const long = readFrame()
     expect(long).toContain('строка 12')
-    expect(long).toContain('▲ 4 строки выше')
+    expect(long).toContain('▲ +4')
     // Under the limit every line is on screen and nothing claims to be hidden.
     app.setDraft(['первая', 'вторая', 'третья'].join('\n'))
     const short = readFrame()
     expect(short).toContain('первая')
     expect(short).toContain('третья')
-    expect(short).not.toContain('выше')
+    expect(short).not.toContain('▲')
     app.stop()
   })
 })
@@ -335,7 +335,7 @@ describe('transcript view', () => {
 })
 
 describe('fullscreen app', () => {
-  it('paints the brand header, the composer, and the status line', () => {
+  it('paints the location row, the composer, and the status line', () => {
     const { stream, written } = fakeStream(100, 30)
     const app = createApp({
       stdout: stream,
@@ -343,17 +343,41 @@ describe('fullscreen app', () => {
       palette: plainPalette,
       version: 'v1.0.0',
       cwd: '/work',
-      status: { model: 'DeepSeek V4 Flash', mode: 'Agent', contextPercent: 18 },
+      status: { model: 'DeepSeek V4 Flash', mode: 'Agent', contextPercent: 18, branch: 'main' },
       caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
     })
     app.log.append({ kind: 'user', text: 'привет' })
     app.start()
     const output = written.join('')
-    expect(output).toContain('KIBBORG')
+    // The header answers "where am I": branch, directory, and context share.
+    expect(output).toContain('≡ main  /work')
+    expect(output).toContain('ctx 18%')
     expect(output).toContain('\u001B[?1049h')
-    expect(output).toContain('DeepSeek V4 Flash')
+    // The model belongs to the composer's bottom border, where the user types.
+    expect(output).toContain('╰─ DeepSeek V4 Flash · Agent ')
     app.stop()
     expect(written.join('')).toContain('\u001B[?1049l')
+  })
+
+  it('omits the branch name outside a repository', () => {
+    const { stream, written } = fakeStream(80, 20)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    app.start()
+    const output = written.join('')
+    // Nothing measured the context yet, and there is no branch to name: the row
+    // says where the session is and nothing it cannot know.
+    expect(output).toContain('≡  /work')
+    expect(output).not.toContain('≡ main')
+    expect(output).not.toContain('ctx 0%')
+    app.stop()
   })
 
   it('scrolls the transcript on wheel events and returns to the tail', () => {    const { stream, written } = fakeStream(80, 20)
@@ -563,7 +587,7 @@ describe('fullscreen app', () => {
     const text = lines.join('\n')
     // The newest rows are on screen, and the first one says how many are above.
     expect(text).toContain('строка 12')
-    expect(text).toContain('▲ 4')
+    expect(text).toContain('▲ +4')
     // The zone is taller than the four rows a single-line composer needs.
     expect(lines.length).toBeGreaterThan(6)
     const caret = zoneCursor(state)
@@ -679,7 +703,7 @@ describe('fullscreen app', () => {
     expect(line).toContain('esc прерывает ход')
   })
 
-  it('names the model and the state in the header row', () => {
+  it('locates the session in the header row', () => {
     const header = renderHeader({
       model: 'kibborg/Kibborg_Flash_v5.7',
       cwd: '/work',
@@ -689,12 +713,17 @@ describe('fullscreen app', () => {
       tick: 3,
       elapsedMs: 1200,
       density: 'full',
+      branch: 'feat/ui',
+      dirty: true,
+      contextPercent: 34,
+      panel: 'Задачи',
     }, 120).map(line => line.spans.map(span => span.text).join(''))
-    // One row carries the brand, the context, and the model; the second is the rule.
+    // The row says where the session is: branch and directory on the left, the
+    // context share and the open panel on the right; the second row is the rule.
     expect(header).toHaveLength(2)
-    expect(header[0]).toContain('KIBBORG')
-    expect(header[0]).toContain('/work')
-    expect(header[0]).toContain('kibborg/Kibborg_Flash_v5.7')
+    expect(header[0]).toContain('≡ feat/ui*  /work')
+    expect(header[0]).toContain('ctx 34%')
+    expect(header[0]).toContain('[Задачи]')
     expect(header[1]).toContain('─')
   })
 
@@ -729,7 +758,7 @@ describe('fullscreen app', () => {
     app.stop()
   })
 
-  it('writes nothing when the frame did not change', () => {
+  it('writes no cells when the frame did not change', () => {
     const { stream, written } = fakeStream(80, 20)
     const app = createApp({
       stdout: stream,
@@ -743,7 +772,9 @@ describe('fullscreen app', () => {
     app.start()
     written.length = 0
     app.render()
-    expect(written.join('')).toBe('')
+    // Painting a frame moves the terminal's own caret, so an unchanged frame still
+    // reposts the caret; it must not repaint a single cell.
+    expect(written.join('')).toMatch(/^(?:\u001B\[\?25h|\u001B\[\d+;\d+H)*$/u)
     app.stop()
   })
 })

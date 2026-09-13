@@ -76,6 +76,15 @@ const keysAndExpect = async (keys, expected, label) => {
   checks.push({ label, ok, tail: transcript.slice(before).slice(0, 400) })
 }
 
+/** Send raw keys and wait until what they removed stops being painted. */
+const keysAndExpectGone = async (keys, gone, label) => {
+  const before = transcript.length
+  term.write(keys)
+  await sleep(1800)
+  const tail = transcript.slice(before)
+  checks.push({ label, ok: !tail.includes(gone), tail: tail.slice(0, 400) })
+}
+
 await sleep(bootMs)
 await typeAndExpect('/status', 'permission', 'status')
 await typeAndExpect('/help', 'skills', 'help')
@@ -83,15 +92,16 @@ await typeAndExpect('/mcp', 'context7', 'mcp')
 // Tab completion happens in the composer, so the line is never submitted: a
 // submitted `/ski` would be a prompt (a skill name) and would start a turn.
 await keysAndExpect('/ski\t', '/skills', 'completion')
-// The composer legend is translated with the rest of the surface, so the check
-// reads the legend marker, not the English wording.
-await keysAndExpect('\u0015', 'команды', 'composer cleared')
+// The composer legend is painted whether or not a draft exists, so clearing the
+// draft is checked by the completed text disappearing from the frame, not by a
+// word that is always there.
+await keysAndExpectGone('\u0015', '> /skills', 'composer cleared')
 await typeAndExpect('/find zzz-nothing-matches', 'no matches', 'find')
 await typeAndExpect('/transcript', 'wrote', 'transcript')
 await typeAndExpect('/copy', 'no answer to copy', 'copy')
 await typeAndExpect('/panel', '[Skills]', 'panel opens')
 await keysAndExpect('\t', '[MCP]', 'panel tab switches')
-await keysAndExpect('\u001B', 'shift+tab', 'panel closes')
+await keysAndExpect('\u001B', '@ файлы', 'panel closes')
 await keysAndExpect('/stat\t', '/status', 'composer works after the modal')
 
 term.write('\u0004')

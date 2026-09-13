@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  COMPOSER_MARGIN,
   COMPOSER_PREFIX,
+  composerBorderBottom,
   composerCursorColumn,
+  composerFrame,
   composerLines,
   composerView,
   contextBar,
@@ -83,21 +86,52 @@ describe('composer', () => {
     const lines = composerLines({ draft: '', innerWidth: 80, showHint: true }, plainPalette)
     expect(lines).toHaveLength(4)
     for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(82)
-    expect(lines[1]?.startsWith(COMPOSER_PREFIX)).toBe(true)
-    expect(lines[2]).toContain('@ files')
+    expect(lines[1]).toContain(COMPOSER_PREFIX)
+    expect(lines[2]).toContain('@ файлы')
   })
 
-  it('hides the hint above a draft and shows a truncated tail', () => {
+  it('keeps the legend above a draft and truncates a long tail', () => {
     const typed = composerLines({ draft: 'test', innerWidth: 80, showHint: true }, plainPalette)
-    expect(typed[2]).not.toContain('@ files')
-    const lines = composerLines({ draft: 'x'.repeat(200), innerWidth: 60, showHint: true }, plainPalette)
-    expect(lines[2]).not.toContain('@ files')
+    expect(typed).toHaveLength(4)
+    expect(typed[2]).toContain('@ файлы')
+    const hidden = composerLines({ draft: 'test', innerWidth: 80, showHint: false }, plainPalette)
+    expect(hidden).toHaveLength(3)
+    expect(hidden.join('\n')).not.toContain('@ файлы')
     const view = composerView('x'.repeat(200), 20)
     expect(view.text.startsWith('…')).toBe(true)
     expect(view.hidden).toBe(181)
     expect(displayWidth(view.text)).toBeLessThanOrEqual(20)
-    expect(composerCursorColumn('abc', 60)).toBe(displayWidth(COMPOSER_PREFIX) + 3)
+    expect(composerCursorColumn('abc', 60)).toBe(COMPOSER_MARGIN + 2 + displayWidth(COMPOSER_PREFIX) + 3)
     expect(makeDash(10)).toBe('- - - - - ')
+  })
+
+  it('keeps every row inside the box on a narrow terminal', () => {
+    const inner = 16
+    const tall = composerLines({
+      draft: Array.from({ length: 12 }, (_, index) => `строка ${String(index + 1)}`).join('\n'),
+      innerWidth: inner,
+      showHint: true,
+      status: 'kibborg/Kibborg_Flash_v5.7 · Agent',
+      counters: '3 агента · 7 задач · 12.4k tok',
+    }, plainPalette)
+    for (const line of tall) expect(displayWidth(line)).toBeLessThanOrEqual(inner + COMPOSER_MARGIN)
+    // The scroll marker and the counters are part of the rows they share, so a
+    // narrow box clips them instead of widening the frame.
+    expect(tall.join('\n')).toContain('▲ +')
+    expect(displayWidth(composerBorderBottom(inner, 'модель · Agent', '3 агента · 12.4k tok'))).toBe(inner)
+    expect(displayWidth(composerBorderBottom(8, 'очень длинное имя модели · Agent', '3 агента'))).toBe(8)
+  })
+
+  it('addresses the caret inside the box it draws', () => {
+    const inner = 40
+    const frame = composerFrame({ draft: 'привет', innerWidth: inner, showHint: true }, plainPalette)
+    const row = frame.lines[frame.cursorRow - 1] ?? ''
+    // The caret sits after the text it follows, and the row it names is the last
+    // draft row of the frame it returns.
+    expect(displayWidth(row.slice(0, frame.cursorColumn - 1))).toBe(
+      COMPOSER_MARGIN + 4 + displayWidth('привет'),
+    )
+    expect(row).toContain('> привет')
   })
 })
 

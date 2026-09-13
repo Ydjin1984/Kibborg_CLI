@@ -65,9 +65,10 @@ const waitFor = async (needle, timeoutMs) => {
 }
 
 await sleep(bootMs)
-// The frame's header names the surface and the session; the status line proves
-// the layout regions were composed, not just one banner line printed.
-const painted = await waitFor(' Kibborg   session-', 20000) && await waitFor('ctx ', 20000)
+// The frame's header carries the location row (`≡ <branch>  <cwd>`) and the
+// composer's bottom border carries the model; both prove the layout regions were
+// composed rather than one banner line printed.
+const painted = await waitFor('≡ ', 20000) && await waitFor('╰─ ', 20000)
 term.write('/status')
 await sleep(700)
 const composed = raw.includes('/status')
@@ -105,7 +106,7 @@ for (let attempt = 0; attempt < 4 && !scrollShown; attempt += 1) {
   await sleep(1200)
   scrollShown = raw.includes('↑')
 }
-const framesBefore = countOccurrences(raw, ' Kibborg   session-')
+const framesBefore = countOccurrences(raw, '≡ ')
 term.write('\u001B[F')
 await sleep(400)
 
@@ -113,13 +114,13 @@ await sleep(400)
 // terminal must degrade instead of crashing.
 term.resize(70, 24)
 await sleep(900)
-const framesAfterShrink = countOccurrences(raw, ' Kibborg   session-')
+const framesAfterShrink = countOccurrences(raw, '≡ ')
 term.resize(28, 10)
 await sleep(900)
 const survivedSmall = !exited
 term.resize(100, 30)
 await sleep(900)
-const repainted = countOccurrences(raw, ' Kibborg   session-') > framesBefore
+const repainted = countOccurrences(raw, '≡ ') > framesBefore
 const restored = await waitFor('\u001B[?25h', 10000) || raw.includes('\u001B[?1049l')
 await sleep(1500)
 term.write('\u0004')

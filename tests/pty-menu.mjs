@@ -92,7 +92,7 @@ if (!ready) {
 }
 
 await keysAndExpect('/', '/new', 'palette lists the new-session command')
-await keysAndExpect('\u001B', 'shift+tab', 'palette closes')
+await keysAndExpect('\u001B', '@ файлы', 'palette closes')
 // A nested list: its own title, a visible way back, and Enter applying the
 // preselected real choice rather than the back row.
 await typeAndExpect('/model', 'НАВИГАЦИЯ', 'model picker opens with a way back')
@@ -100,7 +100,7 @@ await keysAndExpect('\r', 'модель:', 'model picker applies the choice')
 await typeAndExpect('/model', 'модель', 'model picker opens again')
 await keysAndExpect('\u001B[A', 'НАВИГАЦИЯ', 'arrow reaches the back row')
 await keysAndExpect('\r', 'commands', 'back row returns to the command palette')
-await keysAndExpect('\u001B', 'shift+tab', 'palette closes after going back')
+await keysAndExpect('\u001B', '@ файлы', 'palette closes after going back')
 
 term.write('\u0004')
 await sleep(2000)

@@ -2,14 +2,15 @@
  * The lower zone of the interactive surface.
  *
  * The zone is the only part of the screen redrawn in place: an optional overlay
- * above the composer, the composer itself, and the status line. Its height is
- * known before painting, which is what lets the renderer erase exactly the rows
- * it owns and leave the scrollback above untouched (`UI.md` §10).
+ * above the composer, and the composer box itself, whose bottom border carries
+ * the session facts. Its height is known before painting, which is what lets the
+ * renderer erase exactly the rows it owns and leave the scrollback above
+ * untouched (`UI.md` §10).
  * @module @kibborg/tui/zone
  */
 
-import { COMPOSER_MAX_ROWS, composerCursorColumn, composerCursorRow, composerLines, type ComposerInput } from './composer.ts'
-import { statusLine, type StatusInput } from './status.ts'
+import { COMPOSER_MAX_ROWS, COMPOSER_RUNNING_HINT, composerCursorColumn, composerCursorRow, composerLines, type ComposerInput } from './composer.ts'
+import { composerFacts, type StatusInput } from './status.ts'
 import type { Palette } from './tokens.ts'
 
 /** Everything the zone renders. */
@@ -36,18 +37,25 @@ export interface ZoneState {
  * Render the zone's rows.
  *
  * The composer grows with the draft, so the zone's height follows the draft: the
- * overlay, the composer rows, and the status row.
+ * overlay rows, then the composer box with the session facts in its border.
  * @param state - the zone's current values.
  * @param palette - the active palette.
- * @returns overlay rows (when present), the composer's rows, and the status row.
+ * @returns overlay rows (when present) and the composer's rows.
  */
 export function zoneLines(state: ZoneState, palette: Palette): readonly string[] {
+  const facts = composerFacts({ ...state.status, cols: state.cols })
   const composer = composerLines(
-    { draft: state.draft, innerWidth: state.innerWidth, showHint: state.showHint } satisfies ComposerInput,
+    {
+      draft: state.draft,
+      innerWidth: state.innerWidth,
+      showHint: state.showHint,
+      ...(state.status.running === true ? { hint: COMPOSER_RUNNING_HINT } : {}),
+      status: facts.status,
+      counters: facts.counters,
+    } satisfies ComposerInput,
     palette,
   )
-  const status = statusLine({ ...state.status, cols: state.cols }, palette)
-  return [...(state.overlay ?? []), ...composer, status]
+  return [...(state.overlay ?? []), ...composer]
 }
 
 /**
@@ -66,10 +74,11 @@ export function zoneCursor(state: ZoneState): { readonly row: number; readonly c
 /**
  * Height of the zone for a given overlay size.
  * @param overlayRows - number of overlay rows above the composer.
- * @returns `overlayRows + 4 + 1`.
+ * @param composerRows - rows the composer box occupies, border to border.
+ * @returns `overlayRows + composerRows`.
  */
-export function zoneHeight(overlayRows = 0): number {
-  return overlayRows + 4 + 1
+export function zoneHeight(overlayRows = 0, composerRows = 4): number {
+  return overlayRows + composerRows
 }
 
 /**

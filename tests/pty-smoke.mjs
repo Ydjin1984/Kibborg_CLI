@@ -74,12 +74,15 @@ for (const line of pre) {
 }
 term.write(`${task}\r`)
 // A question or an approval shows up before the turn can finish: answer it when
-// the caller supplied an answer, otherwise wait for the turn footer directly.
+// the caller supplied an answer, otherwise wait for the finished turn directly.
 if (answer !== undefined) {
   const asked = await waitFor('type an option number', 180000)
   if (asked) term.write(`${answer}\r`)
 }
-const answered = await waitFor('✓', 180000)
+// A finished turn is visible in the composer's border: the token count and the
+// turn's duration join the model there, and the header gains the measured share
+// of the context window.
+const answered = await waitFor(' tok', 240000)
 term.write('\u0004')
 await sleep(3000)
 term.kill()
@@ -97,5 +100,5 @@ if (!answered || !sawUser || !sawStatus) {
   console.error(`pty-smoke: transcript saved to ${join(here, 'pty-smoke.transcript.txt')}`)
   process.exit(1)
 }
-console.log('pty-smoke: OK — interactive transcript contains the user line, the turn footer, and the status line')
+console.log('pty-smoke: OK — interactive transcript contains the user line, the turn counters, and the status row')
 process.exit(0)

@@ -14,13 +14,18 @@ export { agentToken, fallbackPalette, paletteFor, paletteForTheme, plainPalette,
 export { displayWidth, padLeft, padRight, takeHeadWidth, takeTailWidth } from './width.ts'
 
 export type { FooterInput, StatusInput } from './status.ts'
-export { contextBar, formatTokens, statusLine, thinkingToken, turnFooter } from './status.ts'
+export { composerFacts, contextBar, formatTokens, statusLine, thinkingToken, turnFooter } from './status.ts'
 
 export type { ComposerFrame, ComposerInput, ComposerView } from './composer.ts'
 export {
   COMPOSER_CONTINUATION,
+  COMPOSER_HINT,
+  COMPOSER_MARGIN,
   COMPOSER_MAX_ROWS,
   COMPOSER_PREFIX,
+  COMPOSER_RUNNING_HINT,
+  composerBorderBottom,
+  composerBorderTop,
   composerCursorColumn,
   composerCursorRow,
   composerFrame,

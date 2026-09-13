@@ -82,9 +82,12 @@ try {
 
 const checks = {
   screenCleared: out.includes('\u001B[2J') || out.includes('\u001B[H'),
-  brandHeader: out.includes('KIBBORG'),
+  // The location row is the frame's top line: the mark and the directory. The
+  // context share joins it only after a turn has measured it.
+  brandHeader: out.includes('≡ ') && out.includes('Kibborg_CLI'),
   composerPrompt: out.includes('>'),
-  statusBar: out.includes('▓') || out.includes('░'),
+  // The model and the mode live in the composer's bottom border.
+  statusBar: out.includes('╰─ ') && out.includes(' · Agent'),
   cursorRestored: out.includes('\u001B[?25h'),
   linesErased: out.includes('\u001B[K') || out.includes('\u001B[2K'),
   noLineFeedFrames: !/\u001B\[2K[^\u001B]*\n/u.test(out),

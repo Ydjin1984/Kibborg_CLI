@@ -61,9 +61,7 @@ import type {
   QuestionAnswer,
 } from './interaction.ts'
 import { parseAnswerLine } from './interaction.ts'
-
-/** Version shown in the surface's brand header; it tracks the package version. */
-const SURFACE_VERSION = 'v0.1.0'
+import { SURFACE_VERSION } from './version.ts'
 
 /** ANSI escape sequences, stripped when a line moves into the transcript log. */
 const ANSI_PATTERN = /\u001B\[[0-9;]*[A-Za-z]/gu
@@ -126,7 +124,9 @@ function namesCommand(line: string, sources: CompletionSources): boolean {
  */
 export async function runInteractive(options: ReplOptions): Promise<number> {
   const cols = stdout.columns ?? 88
-  const innerWidth = Math.max(20, cols - 4)
+  // The box is inset by two columns on each side, so its inner width is the
+  // terminal minus four and never wider than what is left.
+  const innerWidth = Math.max(4, cols - 4)
   const palette: Palette = paletteForTheme(options.settings.theme, process.env, true)
   const write = (chunk: string): void => void stdout.write(chunk)
 
@@ -234,6 +234,8 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   let contextPercent = 0
   let zoneHeight = 0
   let running = false
+  /** When the current turn started, for the composer's running timer. */
+  let turnStartedAt = 0
   /** True while a slash command runs: it owns the screen until it finishes. */
   let commandBusy = false
   let controller: AbortController | undefined
@@ -398,29 +400,34 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         : hint === ''
           ? []
           : [`  ${palette.paint(hint, 'Muted')}`]
+    const zoneStatus = {
+      model: options.state.model,
+      contextPercent,
+      mode: options.state.mode,
+      running,
+      ...(running ? { turnSeconds: (Date.now() - turnStartedAt) / 1000 } : {}),
+      ...(options.state.branch === undefined ? {} : { branch: options.state.branch }),
+      ...(options.state.dirty === undefined ? {} : { dirty: options.state.dirty }),
+    }
     const lines = zoneLines({
       draft,
       innerWidth,
-      showHint: !running,
-      status: {
-        model: options.state.model,
-        contextPercent,
-        mode: running ? `${options.state.mode} ·` : options.state.mode,
-        ...(options.state.branch === undefined ? {} : { branch: options.state.branch }),
-        ...(options.state.dirty === undefined ? {} : { dirty: options.state.dirty }),
-      },
+      // The legend lives inside the box and changes with the turn, so it is always
+      // asked for: hiding it would leave the running hint nowhere to appear.
+      showHint: true,
+      status: zoneStatus,
       cols,
       ...(overlayLines.length === 0 ? {} : { overlay: overlayLines }),
     }, palette)
     write(`${lines.join('\n')}\n`)
     zoneHeight = lines.length
-    // The caret belongs inside the composer, which sits under the overlay and
-    // above the status row; its row follows the draft as the box grows.
+    // The caret belongs inside the composer, which sits under the overlay; its row
+    // follows the draft as the box grows.
     const caret = zoneCursor({
       draft,
       innerWidth,
-      showHint: !running,
-      status: { model: options.state.model, contextPercent, mode: options.state.mode },
+      showHint: true,
+      status: zoneStatus,
       cols,
       ...(overlayLines.length === 0 ? {} : { overlay: overlayLines }),
     })
@@ -813,6 +820,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       return
     }
     running = true
+    turnStartedAt = Date.now()
     clearZone()
     if (app !== undefined) {
       // The composer is not repainted while a turn runs, so clearing the line has
@@ -862,6 +870,9 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     options.state.contextPercent = contextPercent
     controller = undefined
     running = false
+    // The hint belonged to the turn: leaving it in place would keep telling the
+    // user how to interrupt a run that has already finished.
+    hint = ''
     // A session switch during the turn owns the surface now: the finished turn
     // belonged to the session that was left, so its measurements must not repaint
     // the status line of the new one.
@@ -1126,8 +1137,14 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           }
           return
         case 'escape':
-          if (running) cancelTurn()
-          else draft = ''
+          // Esc never cancels a turn: it reads the transcript instead, and the
+          // legend says which key does cancel. A stray Esc must not throw away a
+          // running answer.
+          if (running) {
+            hint = 'Ctrl+C прерывает ход'
+            return
+          }
+          draft = ''
           return
         case 'enter':
           if (draft.trim() === '') return

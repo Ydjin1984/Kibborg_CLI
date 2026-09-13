@@ -43,10 +43,17 @@ export interface HeaderState {
   readonly density: Density
   /** The brand's own title row, replaced by the wordmark on the welcome screen. */
   readonly title?: readonly Span[]
+  /** Share of the context window in use, 0–100; shown beside the model. */
+  readonly contextPercent?: number
+  /** Name of the panel the surface currently shows, when one is open. */
+  readonly panel?: string
 }
 
 /** Rows the header occupies. */
 export const HEADER_HEIGHT = 2
+
+/** The mark that opens the location row, matching the reference CLIs. */
+const LOCATION_MARK = '≡'
 
 /** Pad a span list with spaces so the trailing run ends at the right edge. */
 function withRight(left: readonly Span[], right: readonly Span[], width: number): readonly Span[] {
@@ -57,32 +64,41 @@ function withRight(left: readonly Span[], right: readonly Span[], width: number)
 }
 
 /**
- * Render the header rows: brand, rule.
+ * Render the header rows: the location row and a rule.
  *
- * The whole row is one statement about where the session is: the brand, the
- * version, the working directory, the model that answers, and the permission
- * mode in force.
+ * The row answers "where am I and how much room is left" the way the reference
+ * CLIs do: the branch and the working directory on the left, the context window
+ * and the open panel on the right. The model and the mode belong to the prompt
+ * box, which is where the user looks while typing.
  * @param state - session values to display.
  * @param width - available columns.
  * @returns two styled lines.
  */
 export function renderHeader(state: HeaderState, width: number): readonly StyledLine[] {
-  const brand: Span[] = state.title === undefined
-    ? [
-        { text: '  ', token: 'Muted' },
-        { text: '◆ KIBBORG', token: 'AgentKibborg', bold: true },
-        { text: `  ${state.version}`, token: 'Muted' },
-        { text: `    ${state.cwd}`, token: 'Text' },
-      ]
+  // A directory that is not a repository has no branch: inventing `main` would
+  // claim the session is on a branch that does not exist. The dirty marker follows
+  // whatever name is shown, and is dropped with it.
+  const location: Span[] = [
+    { text: '  ', token: 'Muted' },
+    { text: LOCATION_MARK, token: 'Subtle' },
+  ]
+  if (state.branch !== undefined && state.branch !== '') {
+    location.push({ text: ' ', token: 'Muted' }, { text: `${state.branch}${state.dirty === true ? '*' : ''}`, token: 'Muted' })
+  }
+  const left: Span[] = state.title === undefined
+    ? [...location, { text: `  ${state.cwd}`, token: 'Text' }]
     : [...state.title]
 
   const right: Span[] = []
-  if (state.running) right.push({ text: '●', token: 'Success' }, { text: ' ', token: 'Muted' })
-  right.push({ text: state.model, token: 'Text' })
-  if (state.mode !== '') right.push({ text: `   ${state.mode}`, token: 'RoleBadge' })
+  if (state.contextPercent !== undefined) {
+    right.push({ text: `ctx ${String(Math.round(state.contextPercent))}%`, token: 'Muted' })
+  }
+  if (state.panel !== undefined && state.panel !== '') {
+    right.push({ text: '  │  ', token: 'Subtle' }, { text: `[${state.panel}]`, token: 'Text' })
+  }
 
   return [
-    { spans: withRight(brand, right, width) },
+    { spans: withRight(left, right, width) },
     { spans: [{ text: `  ${'─'.repeat(Math.max(0, width - 4))}`, token: 'Subtle' }] },
   ]
 }

@@ -24,24 +24,23 @@ import {
   appendHistory,
   completeDraft,
   completionHint,
+  composerFacts,
   composerFrame,
+  COMPOSER_RUNNING_HINT,
   computeLayout,
   createBuffer,
   createScreen,
   densityFor,
   detectCaps,
   displayWidth,
+  drawHeader,
   historyPath,
   loadHistory,
-  makeDash,
   paletteForTheme,
   panelLines,
   permissionDialog,
   plainPalette,
   questionDialog,
-  spinnerFrame,
-  statusLine,
-  thinkingToken,
   type CellBuffer,
   type CompletionSources,
   type KeyEvent,
@@ -63,6 +62,7 @@ import { actOnPanel, movePanelSelection, switchPanelTab, type PanelSession, type
 import { formatPanelSnapshot, PANEL_NAMES, readPanelSnapshot, type PanelName } from './panels.ts'
 import type { CommandOutcome } from './remote.ts'
 import type { SurfaceSettings } from './surface-settings.ts'
+import { SURFACE_VERSION } from './version.ts'
 
 /** How many conversation lines the mode keeps for redraw. */
 const LINE_LIMIT = 4000
@@ -354,8 +354,23 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     // A shrink may leave the view scrolled past the conversation: clamp before
     // drawing so the frame never shows an empty window by accident.
     scroll = Math.min(scroll, Math.max(0, feedLength(feed) - 1))
-    const innerWidth = Math.max(20, cols - 4)
-    const composerFrameView = composerFrame({ draft, innerWidth, showHint: draft === '' && !running }, palette)
+    const innerWidth = Math.max(4, cols - 4)
+    const facts = composerFacts({
+      model: session.state.model,
+      contextPercent: session.state.contextPercent,
+      mode: session.state.mode,
+      cols,
+      running,
+      ...(running ? { turnSeconds: (Date.now() - runningSince) / 1000 } : {}),
+    })
+    const composerFrameView = composerFrame({
+      draft,
+      innerWidth,
+      showHint: true,
+      ...(running ? { hint: COMPOSER_RUNNING_HINT } : {}),
+      status: facts.status,
+      counters: facts.counters,
+    }, palette)
     const composer = composerFrameView.lines
     // A request the turn waits on owns the overlay: a question or an approval is
     // the only thing the user can answer, so it must be on screen while it waits.
@@ -393,15 +408,28 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       composerHeight: composer.length,
       overlayHeight: overlayLines.length,
       headerHeight: 2,
-      showStatus: true,
+      showStatus: false,
     })
     const buffer = createBuffer(cols, rows, palette)
-    // The scroll marker is deliberately short: the header is clipped to the
-    // terminal width, and a long hint would eat the session and model names.
-    const scrolled = scroll > 0 ? `  ↑${String(scroll)} (End to follow)` : ''
-    const header = ` Kibborg   ${session.sessionId}   ${session.state.model}${scrolled}`
-    buffer.write(0, layout.header.y, header.slice(0, cols), 'Text', { bold: true })
-    buffer.write(0, layout.header.y + 1, makeDash(cols), 'Subtle')
+    // The header is the same location row the inline surface draws: branch and
+    // directory on the left, context and the open panel on the right. A scroll
+    // marker rides with the directory, because the transcript above owns the row
+    // it would otherwise occupy.
+    const panelTab = panel === undefined ? undefined : panel.view.tabs[panel.view.active]?.name
+    drawHeader(buffer, layout.header, {
+      model: session.state.model,
+      cwd: scroll > 0 ? `${process.cwd().replace(/\\/gu, '/')}  ↑${String(scroll)} (End to follow)` : process.cwd().replace(/\\/gu, '/'),
+      version: SURFACE_VERSION,
+      mode: session.state.mode,
+      running,
+      tick,
+      elapsedMs: running ? Date.now() - runningSince : 0,
+      density: densityFor(cols),
+      contextPercent: session.state.contextPercent,
+      ...(panelTab === undefined ? {} : { panel: panelTab }),
+      ...(session.state.branch === undefined ? {} : { branch: session.state.branch }),
+      ...(session.state.dirty === undefined ? {} : { dirty: session.state.dirty }),
+    })
 
     const lines = feed.snapshot(Math.max(0, layout.log.h), scroll)
     const start = layout.log.y + Math.max(0, layout.log.h - lines.length)
@@ -417,27 +445,6 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     for (const [index, line] of composer.entries()) {
       buffer.write(0, layout.composer.y + index, line, index === 0 || index === composer.length - 1 ? 'Subtle' : 'Text')
     }
-    // The status line keeps its shape while a turn runs: the model, the context
-    // meter and the branch stay exactly where they are, and the turn's own facts
-    // (spinner, elapsed time, tokens) are added to them. Replacing the line made
-    // the context window look like it had disappeared.
-    const status = statusLine({
-      model: session.state.model,
-      contextPercent: session.state.contextPercent,
-      mode: session.state.mode,
-      cols,
-      ...(running
-        ? {
-            spinner: spinnerFrame(tick),
-            spinnerToken: thinkingToken(tick),
-            turnSeconds: (Date.now() - runningSince) / 1000,
-          }
-        : {}),
-      ...(session.state.branch === undefined ? {} : { branch: session.state.branch }),
-      ...(session.state.dirty === undefined ? {} : { dirty: session.state.dirty }),
-      ...(running ? { hint: 'esc прерывает ход' } : {}),
-    }, palette)
-    if (layout.status !== null) buffer.write(0, layout.status.y, status.slice(0, cols), 'Muted')
     screen.present(buffer)
     screen.setCursor(layout.composer.y + composerFrameView.cursorRow, composerFrameView.cursorColumn)
   }
@@ -722,11 +729,10 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
         exitCode = 0
         return
       case 'escape':
-        // Escape is the interrupt key while a turn runs, as in the inline loop.
+        // Esc never cancels a turn: Ctrl+C does, and the composer's legend names
+        // it. A stray Esc must not throw away a running answer.
         if (running) {
-          controller?.abort()
-          void session.client.sessions.cancel({ sessionId: session.sessionId })
-          hint = 'прерываю ход'
+          hint = 'Ctrl+C прерывает ход'
           render()
           return
         }

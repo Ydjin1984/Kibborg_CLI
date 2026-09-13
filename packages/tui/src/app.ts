@@ -17,12 +17,11 @@ import type { Palette } from './tokens.ts'
 import type { CellBuffer } from './framebuffer.ts'
 import { createBuffer } from './framebuffer.ts'
 import type { Rect } from './box.ts'
-import { dashedLine, drawBox } from './box.ts'
+import { drawBox } from './box.ts'
 import { computeLayout, densityFor, type Density } from './layout.ts'
 import type { KeyEvent } from './input.ts'
-import type { LogModel, Span } from './log.ts'
-import type { TokenName } from './tokens.ts'
-import { createLog, clampScroll, renderTranscript, wrapText } from './log.ts'
+import type { LogModel } from './log.ts'
+import { createLog, clampScroll, renderTranscript } from './log.ts'
 import { drawLogView, paintStyledLine } from './logview.ts'
 import { drawHeader, HEADER_HEIGHT, type HeaderState } from './header.ts'
 import { renderWelcome, type WelcomeState } from './welcome.ts'
@@ -30,8 +29,9 @@ import { renderMenu, type MenuItem, type MenuView, type DialogView } from './men
 import { wheelDelta } from './mouse.ts'
 import { createScreen, type Screen, type TerminalCaps } from './screen.ts'
 import { displayWidth } from './width.ts'
-import { elapsedLabel, progressBar, workingSpinner } from './anim.ts'
-import { formatTokens } from './status.ts'
+import { workingSpinner } from './anim.ts'
+import { composerBorderBottom, composerBorderTop, COMPOSER_HINT, COMPOSER_PREFIX, COMPOSER_RUNNING_HINT, composerView } from './composer.ts'
+import { composerFacts } from './status.ts'
 
 /** Session values shown in the status line. */
 export interface AppStatus {
@@ -198,9 +198,6 @@ const COMPOSER_MAX_ROWS = 8
 /** Rows a wheel notch scrolls. */
 const WHEEL_LINES = 3
 
-/** Default composer legend. */
-const DEFAULT_HINT = '@ файлы   / команды   ! shell   shift+enter — новая строка'
-
 /**
  * Build the surface. Nothing is written until {@link App.start}.
  * @param options - streams, palette, and initial values.
@@ -219,7 +216,7 @@ export function createApp(options: AppOptions): App {
   let status: AppStatus = options.status
   let welcome: WelcomeState | null = options.welcome ?? null
   let draft = ''
-  let hint = options.hint ?? DEFAULT_HINT
+  let hint = options.hint ?? COMPOSER_HINT
   let dialog: DialogView | null = null
   let menuItems: readonly MenuItem[] | null = null
   /** Whether the palette was opened by the surface rather than typed: it then shows its own list of choices. */
@@ -238,7 +235,6 @@ export function createApp(options: AppOptions): App {
   let stopped = false
   let transcriptHeight = 0
   let viewportHeight = 1
-  let lastCursor: { readonly row: number; readonly col: number } | null = null
   let unhandled: ((key: KeyEvent) => void) | undefined
   let onAccept: ((item: MenuItem) => void) | undefined
   let onMenuClose: ((nested: boolean) => void) | undefined
@@ -364,6 +360,9 @@ export function createApp(options: AppOptions): App {
     elapsedMs: running ? Date.now() - startedAt : 0,
     density,
     activity,
+    // Before the first turn nothing has measured the context window, so the row
+    // stays silent rather than claiming nought per cent is in use.
+    ...(status.contextPercent > 0 ? { contextPercent: status.contextPercent } : {}),
     ...(status.branch === undefined ? {} : { branch: status.branch }),
     ...(status.dirty === undefined ? {} : { dirty: status.dirty }),
     ...(status.tokens === undefined ? {} : { tokens: status.tokens }),
@@ -392,6 +391,9 @@ export function createApp(options: AppOptions): App {
       // The welcome screen owns the top of the display: its wordmark is the
       // brand, so the session header is not drawn above it.
       headerHeight: welcome === null ? HEADER_HEIGHT : 0,
+      // The session facts live in the composer's bottom border, so no row is
+      // reserved for a status line of their own.
+      showStatus: false,
     })
     const buf = createBuffer(cols, rows, palette)
     if (welcome === null) drawHeader(buf, layout.header, headerState(density))
@@ -431,19 +433,27 @@ export function createApp(options: AppOptions): App {
           : 'Esc — закрыть · ↑↓ — выбор · Enter — выполнить')
       }
     }
-    drawComposer(buf, layout.composer, { draft, hint, running })
-    drawStatus(buf, layout.status, status, cols, running)
+    // The border reports the turn that is running now, not the length of the
+    // previous one: `status.turnSeconds` still holds the finished turn until the
+    // host sends new numbers.
+    const facts = composerFacts({ ...status, cols, running, ...(running ? { turnSeconds: (Date.now() - startedAt) / 1000 } : {}) })
+    // The legend answers what the user can do next: while a turn runs the only
+    // useful keys are the ones that stop it or read the transcript, and an empty
+    // legend falls back to the surface's own key list.
+    const legend = running ? COMPOSER_RUNNING_HINT : hint === '' ? COMPOSER_HINT : hint
+    drawComposer(buf, layout.composer, { draft, hint: legend, running, status: facts.status, counters: facts.counters })
     paintSelection(buf)
     lastFrame = buf
     screen.present(buf)
+    // The caret is placed after every frame, not only when it moved: painting the
+    // frame moves the terminal's own caret to the last cell it wrote, which during
+    // a turn is the border the elapsed time changes in.
     const cursor = menuView !== null || dialog !== null ? null : composerCursor(layout.composer, draft)
     if (cursor === null) {
       screen.hideCursor()
-      lastCursor = null
-    } else if (lastCursor === null || lastCursor.row !== cursor.row || lastCursor.col !== cursor.col) {
+    } else {
       screen.showCursor()
       screen.setCursor(cursor.row, cursor.col)
-      lastCursor = cursor
     }
   }
 
@@ -732,56 +742,77 @@ export function createApp(options: AppOptions): App {
   }
 }
 
-/** Draw the composer: a dashed rule, the prompt rows, the hint row, and a rule. */
-function drawComposer(
-  buf: CellBuffer,
-  rect: Rect,
-  input: { readonly draft: string; readonly hint: string; readonly running: boolean },
-): void {
+/** What the composer shows besides the draft itself. */
+interface ComposerPaint {
+  /** Typed text, which may hold line breaks. */
+  readonly draft: string
+  /** Contextual key legend, drawn between the input and the bottom border. */
+  readonly hint: string
+  /** Whether a turn is running, which styles the prompt marker. */
+  readonly running: boolean
+  /** Session facts carried by the bottom border, left of the fill. */
+  readonly status: string
+  /** Counters carried by the bottom border, flush with its right corner. */
+  readonly counters: string
+}
+
+/**
+ * Draw the composer: a rounded box whose bottom border carries the session facts.
+ *
+ * The rows are, from the top: the border, the input rows, the key legend, and the
+ * bottom border with the status inside it. The legend and the status live in the
+ * box because both answer questions the user asks while typing, and neither costs
+ * a row outside it.
+ * @param buf - the frame being assembled.
+ * @param rect - the composer rectangle, which includes the border, the legend, and the status.
+ * @param input - draft and the strings painted around it.
+ */
+function drawComposer(buf: CellBuffer, rect: Rect, input: ComposerPaint): void {
   if (rect.h <= 0 || rect.w <= 0) return
   const inner = Math.max(8, rect.w - 4)
   const left = rect.x + 2
   const right = left + inner - 1
-  buf.write(left, rect.y, dashedLine(inner), 'Subtle')
+  const last = rect.y + rect.h - 1
+  const rows = Math.max(1, Math.min(composerRowLimit(rect), input.draft.split('\n').length))
+  // The legend needs a row of its own between the draft and the border; without
+  // one it would be painted over the last draft row.
+  const hasLegend = rect.h >= 4 && input.hint !== ''
+  const legendRow = hasLegend ? last - 1 : -1
+  buf.write(left, rect.y, composerBorderTop(inner), 'Subtle')
 
-  const prefix = '> '
-  const available = inner - 4
   // A multi-line draft keeps every line: the prompt marks the first one and the
   // continuation lines stay aligned under it, so Shift+Enter shows the break the
   // user just typed instead of scrolling it away. Past the window's limit the
   // view follows the caret, and the first row says how many lines are above it.
-  const total = input.draft.split('\n').length
-  const rows = Math.max(1, Math.min(composerRowLimit(rect), total))
-  const hidden = Math.max(0, total - rows)
+  const hidden = Math.max(0, input.draft.split('\n').length - rows)
   const lines = input.draft.split('\n').slice(hidden)
+  const prefix = COMPOSER_PREFIX
   for (const [index, line] of lines.entries()) {
     const row = rect.y + 1 + index
-    if (row >= rect.y + rect.h - 1) break
+    if (row >= rect.y + rows + 1 || row === legendRow) break
     buf.put(left, row, '│', 'Subtle')
     buf.put(right, row, '│', 'Subtle')
-    const marker = index === 0 && hidden === 0 ? prefix : '  '
-    const shown = index === lines.length - 1 ? takeTail(line, available).text : takeHead(line, available)
-    buf.write(left + 1, row, ' ', 'Muted')
-    buf.write(left + 3, row, marker, 'Accent', { bold: !input.running && index === lines.length - 1 })
-    buf.write(left + 3 + displayWidth(marker), row, shown, 'Text')
-  }
-  if (hidden > 0) {
-    // The scroll position is information: without it a draft of ten lines looks
-    // like a draft of eight with its head missing.
-    const label = ` ▲ ${String(hidden)} ${hidden === 1 ? 'строка' : hidden < 5 ? 'строки' : 'строк'} выше`
-    buf.write(left + 4, rect.y + 1, takeHead(label, Math.max(0, available)), 'Subtle', { dim: true })
+    const marker = index === 0 && hidden > 0 ? `▲ +${String(hidden)} ` : ''
+    const room = inner - 5 - displayWidth(marker)
+    // The last visible row follows the caret; the rows above it keep their head so
+    // the draft reads from its start.
+    const view = index === lines.length - 1 ? composerView(line, room) : { text: takeHead(line, room) }
+    const kind = index === 0 && hidden === 0 ? prefix : '  '
+    buf.write(left + 2, row, kind, 'Accent', { bold: !input.running && index === lines.length - 1 })
+    const markerColumn = left + 2 + displayWidth(kind)
+    if (marker !== '') buf.write(markerColumn, row, marker, 'Subtle', { dim: true })
+    buf.write(markerColumn + displayWidth(marker), row, view.text, 'Text')
   }
 
-  const hintRow = rect.y + rect.h - (rect.h >= 4 ? 2 : 1)
-  if (hintRow > rect.y) {
-    buf.put(left, hintRow, '│', 'Subtle')
-    buf.put(right, hintRow, '│', 'Subtle')
-    // While a turn runs the hint states that fact, so the row under the composer
-    // answers "is it still working" without the user reading the status line.
-    const text = input.running ? '✦ Working · Esc прерывает ход' : input.hint
-    buf.write(left + 4, hintRow, takeHead(text, Math.max(0, available)), input.running ? 'Text' : 'Muted', { dim: true })
+  if (legendRow > rect.y) {
+    buf.put(left, legendRow, '│', 'Subtle')
+    buf.put(right, legendRow, '│', 'Subtle')
+    buf.write(left + 2, legendRow, takeHead(input.hint, Math.max(0, inner - 5)), 'Muted', { dim: true })
   }
-  if (rect.h >= 4) buf.write(left, rect.y + rect.h - 1, dashedLine(inner), 'Subtle')
+
+  // The bottom border carries the status, the way the reference CLIs place it: the
+  // user reads the model and the mode while typing, and the facts cost no row.
+  buf.write(left, last, composerBorderBottom(inner, input.status, input.counters), 'Subtle')
 }
 
 /** How many input rows the composer rectangle can hold. */
@@ -796,11 +827,13 @@ function composerCursor(rect: Rect, draft: string): { readonly row: number; read
   const lines = draft.split('\n')
   const total = lines.length
   const rows = Math.max(1, Math.min(composerRowLimit(rect), total))
-  // The caret sits at the end of the newest line, which is the last row the
-  // composer shows; the column matches how `drawComposer` lays the prompt and its
-  // continuations out.
-  const visible = takeTail(lines[total - 1] ?? '', inner - 4)
-  return { row: rect.y + rows, col: rect.x + 7 + displayWidth(visible.text) }
+  const hidden = Math.max(0, total - rows)
+  // The caret sits at the end of the newest line, which is the last input row the
+  // composer shows, and its room is the one `drawComposer` leaves after the prompt
+  // and the scroll marker. Both addresses are one-based, like the terminal's own.
+  const marker = total > rows ? `▲ +${String(hidden)} ` : ''
+  const view = composerView(lines[total - 1] ?? '', Math.max(1, inner - 5 - displayWidth(marker)))
+  return { row: rect.y + rows + 1, col: rect.x + 7 + displayWidth(marker) + displayWidth(view.text) }
 }
 
 /**
@@ -834,91 +867,6 @@ function drawDialog(buf: CellBuffer, rect: Rect, dialog: DialogView): void {
     if (line === undefined) continue
     paintStyledLine(buf, rect.x + 2, rect.y + 1 + row, Math.max(1, rect.w - 4), line)
   }
-}
-
-/**
- * The Russian plural form of a count, for the words the status line uses.
- * @param count - the number being counted.
- * @param one - form for one.
- * @param few - form for two to four.
- * @param many - form for five and above.
- * @returns the word to print after the number.
- */
-function plural(count: number, one: string, few: string, many: string): string {
-  const rest = count % 100
-  if (rest >= 11 && rest <= 14) return many
-  const last = count % 10
-  if (last === 1) return one
-  if (last >= 2 && last <= 4) return few
-  return many
-}
-
-/** Draw the status line pinned to the last row, dropping parts as width shrinks. */
-function drawStatus(buf: CellBuffer, rect: Rect | null, status: AppStatus, cols: number, running: boolean): void {
-  if (rect === null || rect.h <= 0) return
-  const percent = Math.round(status.contextPercent)
-  // While the model runs, the line answers "what is happening": a state word, the
-  // elapsed time, and who is on it. The model that answers is named in the header,
-  // so the line never mentions it twice.
-  const parts: Span[] = []
-  const counters: { text: string; token: TokenName }[] = []
-  if (status.agents !== undefined) {
-    counters.push({ text: `${String(status.agents)} ${plural(status.agents, 'агент', 'агента', 'агентов')}`, token: 'Muted' })
-  }
-  if (status.tasks !== undefined && status.tasks > 0) {
-    counters.push({ text: `${String(status.tasks)} ${plural(status.tasks, 'задача', 'задачи', 'задач')}`, token: 'Muted' })
-  }
-  if (running) {
-    parts.push({ text: '✦', token: 'Shimmer', bold: true }, { text: ' Working', token: 'Text' })
-    if (status.turnSeconds !== undefined) {
-      parts.push({ text: ' ', token: 'Muted' }, { text: elapsedLabel(status.turnSeconds * 1000), token: 'Muted' })
-    }
-  } else {
-    parts.push({ text: status.model, token: 'Text' })
-  }
-  // The context meter sits before the counters: at a narrow width the counters are
-  // the first thing that may go, and the meter is the fact the user asked to keep.
-  const ctx: Span[] = [{ text: `ctx ${String(percent)}%`, token: 'Muted' }]
-  if (cols >= 72) ctx.push({ text: ` ${progressBar(percent, 10)}`, token: 'Accent' })
-  parts.push({ text: ' · ', token: 'Subtle' }, ...ctx)
-  for (const counter of counters) {
-    parts.push({ text: ' · ', token: 'Subtle' }, counter)
-  }
-  if (cols >= 110 && status.costUsd !== undefined) {
-    parts.push({ text: ' · ', token: 'Subtle' }, { text: `$${status.costUsd.toFixed(2)}`, token: 'Muted' })
-  }
-  if (cols >= 80 && status.turnSeconds !== undefined && !running) {
-    parts.push({ text: ' · ', token: 'Subtle' }, { text: `${status.turnSeconds.toFixed(1)}s`, token: 'Muted' })
-  }
-  if (cols >= 96 && status.tokens !== undefined) {
-    parts.push({ text: ' · ', token: 'Subtle' }, { text: `${formatTokens(status.tokens)} tok`, token: 'Muted' })
-  }
-  if (cols >= 88 && status.branch !== undefined) {
-    parts.push({ text: ' · ', token: 'Subtle' }, { text: `${status.branch}${status.dirty === true ? '*' : ''}`, token: 'Warn' })
-  }
-  parts.push({ text: ' · ', token: 'Subtle' }, { text: status.mode, token: 'RoleBadge' })
-  if (running && cols >= 100) parts.push({ text: ' · ', token: 'Subtle' }, { text: 'Esc прерывает ход', token: 'Muted' })
-
-  let column = rect.x + 2
-  for (const span of parts) {
-    if (column >= rect.x + rect.w) break
-    const room = rect.x + rect.w - column
-    const text = displayWidth(span.text) > room ? takeHead(span.text, room) : span.text
-    if (text === '') break
-    buf.write(column, rect.y, text, span.token, {
-      ...(span.bold === undefined ? {} : { bold: span.bold }),
-      ...(span.dim === undefined ? {} : { dim: span.dim }),
-    })
-    column += displayWidth(text)
-  }
-}
-
-/** Keep the tail of a draft that fits, marking the cut with an ellipsis. */
-function takeTail(text: string, width: number): { readonly text: string } {
-  if (displayWidth(text) <= width) return { text }
-  const lines = wrapText(text, Math.max(1, width - 1))
-  const last = lines[lines.length - 1] ?? ''
-  return { text: `…${last}` }
 }
 
 /** Keep the head of a line that fits. */
