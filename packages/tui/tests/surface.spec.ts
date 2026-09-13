@@ -365,6 +365,33 @@ describe('transcript view', () => {
     const text = buf.snapshot().join('\n')
     expect(text).toContain('↓')
   })
+
+  it('draws a thin scrollbar in the rightmost column only while the log overflows', () => {
+    const log = createLog()
+    for (let index = 0; index < 40; index++) log.append({ kind: 'assistant', text: `строка ${String(index)}` })
+    const lines = renderEntries(log.entries, 40)
+    const buf = createBuffer(40, 12, plainPalette)
+    const rect = { x: 0, y: 0, w: 40, h: 10 }
+    drawLogView(buf, rect, lines, { offset: 0, follow: true })
+    const column = (offset: number): string => {
+      const frame = createBuffer(40, 12, plainPalette)
+      drawLogView(frame, rect, lines, { offset, follow: false })
+      return frame.snapshot().map(row => row[39] ?? ' ').join('')
+    }
+    // The thumb sits at the bottom when the view follows the tail and moves up as the
+    // reader scrolls back; the track behind it is one column wide.
+    const tail = column(lines.length - rect.h)
+    expect(tail).toContain('█')
+    expect(tail.indexOf('█')).toBe(rect.h - 1)
+    expect(column(0).indexOf('█')).toBe(0)
+    // One thumb, and a track that fills the rest of the viewport.
+    expect(tail.match(/█/gu)).toHaveLength(1)
+    expect(tail).toContain('│')
+    // A log that fits needs no scrollbar at all.
+    const short = createBuffer(40, 12, plainPalette)
+    drawLogView(short, rect, lines.slice(0, 4), { offset: 0, follow: true })
+    expect(short.snapshot().map(row => row[39] ?? ' ').join('')).not.toContain('█')
+  })
 })
 
 describe('fullscreen app', () => {
