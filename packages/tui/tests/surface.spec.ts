@@ -64,6 +64,90 @@ describe('mouse decoding', () => {
     expect(wheelDelta({ action: 'wheel-down', x: 0, y: 0, shift: false, alt: false, ctrl: false }, 3)).toBe(3)
     expect(wheelDelta({ action: 'move', x: 0, y: 0, shift: false, alt: false, ctrl: false }, 3)).toBe(0)
   })
+
+  it('drags a selection from the first press, and clicks a fold row instead of copying it', () => {
+    const { stream } = fakeStream(80, 24)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const picked: string[] = []
+    app.onSelection(text => { picked.push(text) })
+    const id = app.log.append({
+      kind: 'tool',
+      text: 'guard.go',
+      name: 'read',
+      status: 'ok',
+      title: 'Читает guard.go',
+      output: 'первая строка вывода',
+    })
+    app.start()
+    const mouse = (action: 'press-left' | 'move' | 'release', x: number, y: number): void => {
+      app.handleKey({ kind: 'mouse', event: { action, x, y, shift: false, alt: false, ctrl: false } })
+    }
+    // A drag from any row paints at once and reports the range it covers, even if
+    // the terminal never reported the motion in between.
+    const dragAll = (): string => {
+      picked.length = 0
+      mouse('press-left', 0, 0)
+      mouse('move', 79, 23)
+      mouse('release', 79, 23)
+      return picked[0] ?? ''
+    }
+    const frame = dragAll()
+    expect(frame.trim()).not.toBe('')
+    expect(frame).toContain('Читает guard.go')
+    // A click on the fold row of that entry expands it, and copies nothing.
+    const markerRow = frame.split('\n').findIndex(line => line.includes('▸'))
+    expect(markerRow).toBeGreaterThan(0)
+    picked.length = 0
+    mouse('press-left', 10, markerRow)
+    mouse('release', 10, markerRow)
+    expect(app.log.entries.find(entry => entry.id === id)?.expanded).toBe(true)
+    expect(picked).toHaveLength(0)
+    app.stop()
+  })
+
+  it('grows the composer with the draft and scrolls its own text past eight lines', () => {
+    const { stream } = fakeStream(80, 24)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const picked: string[] = []
+    app.onSelection(text => { picked.push(text) })
+    app.setDraft(Array.from({ length: 12 }, (_, index) => `строка ${String(index + 1)}`).join('\n'))
+    app.start()
+    // The draft is longer than the window, so the frame shows its tail and says
+    // how much is above it.
+    const readFrame = (): string => {
+      picked.length = 0
+      app.handleKey({ kind: 'mouse', event: { action: 'press-left', x: 0, y: 0, shift: false, alt: false, ctrl: false } })
+      app.handleKey({ kind: 'mouse', event: { action: 'move', x: 79, y: 23, shift: false, alt: false, ctrl: false } })
+      app.handleKey({ kind: 'mouse', event: { action: 'release', x: 79, y: 23, shift: false, alt: false, ctrl: false } })
+      return picked.join('\n')
+    }
+    const long = readFrame()
+    expect(long).toContain('строка 12')
+    expect(long).toContain('▲ 4 строки выше')
+    // Under the limit every line is on screen and nothing claims to be hidden.
+    app.setDraft(['первая', 'вторая', 'третья'].join('\n'))
+    const short = readFrame()
+    expect(short).toContain('первая')
+    expect(short).toContain('третья')
+    expect(short).not.toContain('выше')
+    app.stop()
+  })
 })
 
 describe('key parsing extensions', () => {

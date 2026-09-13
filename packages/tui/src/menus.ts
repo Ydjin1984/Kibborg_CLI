@@ -71,6 +71,7 @@ const COMMAND_META: Readonly<Record<string, { readonly group: string; readonly d
   compact: { group: 'SESSION', desc: 'squeeze context' },
   home: { group: 'SESSION', desc: 'welcome screen' },
   quit: { group: 'SESSION', desc: 'leave the surface', key: 'ctrl+q' },
+  exit: { group: 'SESSION', desc: 'leave the surface' },
   model: { group: 'MODEL', desc: 'switch model', key: 'ctrl+m' },
   effort: { group: 'MODEL', desc: 'reasoning depth' },
   status: { group: 'MODEL', desc: 'current settings' },

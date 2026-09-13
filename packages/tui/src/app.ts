@@ -46,11 +46,11 @@ export interface AppStatus {
   /** Whether the working tree has uncommitted changes. */
   readonly dirty?: boolean
   /** Duration of the last turn, in seconds. */
-  readonly turnSeconds?: number
+  readonly turnSeconds?: number | undefined
   /** Cost of the session in US dollars. */
   readonly costUsd?: number
   /** Tokens spent this turn. */
-  readonly tokens?: number
+  readonly tokens?: number | undefined
   /** Agents working on this run, including the one the user talks to. */
   readonly agents?: number | undefined
   /** Tool calls the run has made so far. */
@@ -341,6 +341,18 @@ export function createApp(options: AppOptions): App {
     return lines.join('\n')
   }
 
+  /**
+   * The text the current selection covers.
+   *
+   * A selection that never left the cell it started in is a click, and a click
+   * must not put that one character on the clipboard.
+   */
+  const selectionTextFor = (): string => {
+    if (selection === undefined || lastFrame === undefined) return ''
+    if (selection.anchor.x === selection.head.x && selection.anchor.y === selection.head.y) return ''
+    return selectionText(lastFrame)
+  }
+
   /** Everything the header needs, derived from the current state. */
   const headerState = (density: Density): HeaderState => ({
     model: status.model,
@@ -597,63 +609,46 @@ export function createApp(options: AppOptions): App {
               return
             }
           }
-          // A click on a row that reacts expands or collapses its entry: that is how
-          // a long document, a tool detail, or a finished delegation stays out of
-          // the way. The press only arms the click; a drag still selects text.
-          if (event.action === 'press-left' && !event.ctrl) {
+          if (event.action === 'press-left') {
+            // The highlight starts on the press, the way a terminal behaves: a
+            // terminal that reports no intermediate motion still has to show what
+            // the drag covers. A row that reacts to clicks is remembered instead,
+            // and the release decides whether this was a click or a drag.
+            selection = { anchor: { x: event.x, y: event.y }, head: { x: event.x, y: event.y } }
             armedClick = undefined
             const entryId = collapsedRows.get(event.y)
-            if (entryId !== undefined) {
-              armedClick = { x: event.x, y: event.y, entryId }
-              return
-            }
-          }
-          if (event.action === 'press-left') {
-            armedClick = undefined
-            selection = { anchor: { x: event.x, y: event.y }, head: { x: event.x, y: event.y } }
+            if (entryId !== undefined && !event.ctrl) armedClick = { x: event.x, y: event.y, entryId }
             render()
             return
           }
           if (event.action === 'move') {
-            if (armedClick !== undefined) {
-              // The pointer left the cell it pressed: this is a selection after all.
-              if (event.y !== armedClick.y || event.x !== armedClick.x) {
-                selection = {
-                  anchor: { x: armedClick.x, y: armedClick.y },
-                  head: { x: event.x, y: event.y },
-                }
-                armedClick = undefined
-                render()
-              }
+            if (selection === undefined) {
               return
             }
-            if (selection !== undefined) {
-              selection.head = { x: event.x, y: event.y }
-              render()
-              return
-            }
+            selection.head = { x: event.x, y: event.y }
+            // Any movement means the user is selecting, not clicking.
+            if (armedClick !== undefined && (event.y !== armedClick.y || event.x !== armedClick.x)) armedClick = undefined
+            render()
+            return
           }
           if (event.action === 'release') {
-            if (armedClick !== undefined) {
-              const { entryId } = armedClick
-              armedClick = undefined
+            const text = selectionTextFor()
+            const clicked = armedClick !== undefined && selection !== undefined
+              && selection.anchor.x === selection.head.x && selection.anchor.y === selection.head.y
+            const entryId = armedClick?.entryId
+            armedClick = undefined
+            selection = undefined
+            if (clicked && entryId !== undefined) {
               const entry = log.entries.find(candidate => candidate.id === entryId)
-              if (entry !== undefined) {
-                log.patch(entryId, { expanded: entry.expanded !== true })
-                render()
-              }
-              return
-            }
-            if (selection !== undefined) {
-              // A press and a release in one cell is a click, not a selection: it
-              // must not put that single character on the clipboard.
-              const moved = selection.anchor.x !== selection.head.x || selection.anchor.y !== selection.head.y
-              const text = !moved || lastFrame === undefined ? '' : selectionText(lastFrame)
-              selection = undefined
+              if (entry !== undefined) log.patch(entryId, { expanded: entry.expanded !== true })
               render()
-              if (text.trim() !== '') onSelection?.(text)
               return
             }
+            render()
+            // A press and a release in one cell is a click, not a selection: it
+            // must not put that single character on the clipboard.
+            if (text.trim() !== '') onSelection?.(text)
+            return
           }
           unhandled?.(key)
           return
@@ -747,19 +742,28 @@ function drawComposer(
   const available = inner - 4
   // A multi-line draft keeps every line: the prompt marks the first one and the
   // continuation lines stay aligned under it, so Shift+Enter shows the break the
-  // user just typed instead of scrolling it away.
-  const rows = Math.max(1, Math.min(composerRowLimit(rect), input.draft.split('\n').length))
-  const lines = input.draft.split('\n').slice(-rows)
+  // user just typed instead of scrolling it away. Past the window's limit the
+  // view follows the caret, and the first row says how many lines are above it.
+  const total = input.draft.split('\n').length
+  const rows = Math.max(1, Math.min(composerRowLimit(rect), total))
+  const hidden = Math.max(0, total - rows)
+  const lines = input.draft.split('\n').slice(hidden)
   for (const [index, line] of lines.entries()) {
     const row = rect.y + 1 + index
     if (row >= rect.y + rect.h - 1) break
     buf.put(left, row, '│', 'Subtle')
     buf.put(right, row, '│', 'Subtle')
-    const marker = index === 0 ? prefix : '  '
+    const marker = index === 0 && hidden === 0 ? prefix : '  '
     const shown = index === lines.length - 1 ? takeTail(line, available).text : takeHead(line, available)
     buf.write(left + 1, row, ' ', 'Muted')
     buf.write(left + 3, row, marker, 'Accent', { bold: !input.running && index === lines.length - 1 })
     buf.write(left + 3 + displayWidth(marker), row, shown, 'Text')
+  }
+  if (hidden > 0) {
+    // The scroll position is information: without it a draft of ten lines looks
+    // like a draft of eight with its head missing.
+    const label = ` ▲ ${String(hidden)} ${hidden === 1 ? 'строка' : hidden < 5 ? 'строки' : 'строк'} выше`
+    buf.write(left + 4, rect.y + 1, takeHead(label, Math.max(0, available)), 'Subtle', { dim: true })
   }
 
   const hintRow = rect.y + rect.h - (rect.h >= 4 ? 2 : 1)
@@ -784,9 +788,13 @@ function composerCursor(rect: Rect, draft: string): { readonly row: number; read
   if (rect.h <= 0 || rect.w <= 0) return null
   const inner = Math.max(8, rect.w - 4)
   const lines = draft.split('\n')
-  const rows = Math.max(1, Math.min(composerRowLimit(rect), lines.length))
-  const last = takeTail(lines[lines.length - 1] ?? '', inner - 4)
-  return { row: rect.y + rows + 1, col: rect.x + 8 + displayWidth(last.text) }
+  const total = lines.length
+  const rows = Math.max(1, Math.min(composerRowLimit(rect), total))
+  // The caret sits at the end of the newest line, which is the last row the
+  // composer shows; the column matches how `drawComposer` lays the prompt and its
+  // continuations out.
+  const visible = takeTail(lines[total - 1] ?? '', inner - 4)
+  return { row: rect.y + rows, col: rect.x + 7 + displayWidth(visible.text) }
 }
 
 /**

@@ -6,10 +6,9 @@
  * is appended to the scrollback and never re-rendered, which is what keeps a
  * long session cheap in `inline` mode (`UI.md` §10).
  *
- * Interruption follows `ARCHITECTURE.md` §4.1: the first Ctrl+C or Esc cancels
- * the running turn (or clears the draft when nothing runs), a second Ctrl+C
- * within {@link INTERRUPT_WINDOW_MS} leaves the process, and Ctrl+D leaves on an
- * empty draft. Esc never exits.
+ * Interruption follows `ARCHITECTURE.md` §4.1: Ctrl+C or Esc cancels the running
+ * turn, and outside a turn Ctrl+C clears the draft first and then leaves the
+ * process. Ctrl+D leaves on an empty draft. Esc never exits.
  * @module @kibborg/client-node/repl
  */
 
@@ -63,14 +62,20 @@ import type {
 } from './interaction.ts'
 import { parseAnswerLine } from './interaction.ts'
 
-/** Two Ctrl+C presses within this window leave the process. */
-export const INTERRUPT_WINDOW_MS = 800
-
 /** Version shown in the surface's brand header; it tracks the package version. */
 const SURFACE_VERSION = 'v0.1.0'
 
 /** ANSI escape sequences, stripped when a line moves into the transcript log. */
 const ANSI_PATTERN = /\u001B\[[0-9;]*[A-Za-z]/gu
+
+/**
+ * Commands this surface answers itself.
+ *
+ * The palette is built from the host's command catalog, which does not list them,
+ * so they are added explicitly: a user looking for the way out has to find it in
+ * the list, not only by typing its name from memory.
+ */
+const LOCAL_COMMANDS: readonly string[] = ['new', 'resume', 'sessions', 'model', 'effort', 'permission', 'quit', 'exit']
 
 /** What the interactive loop needs from its host. */
 export interface ReplOptions {
@@ -152,7 +157,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     : undefined
 
   /** The slash palette's entries: the commands this surface and the host register. */
-  const menuItems: readonly MenuItem[] = commandMenuItems(options.sources.commands)
+  const menuItems: readonly MenuItem[] = commandMenuItems([...options.sources.commands, ...LOCAL_COMMANDS])
 
   /** The request box for whatever the surface is waiting on, if anything. */
   const currentDialog = (): DialogView | null => {
@@ -216,7 +221,14 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   /** True while a slash command runs: it owns the screen until it finishes. */
   let commandBusy = false
   let controller: AbortController | undefined
-  let lastInterrupt = 0
+  /**
+   * Counter of session switches.
+   *
+   * A turn remembers the number it started under: once the surface has moved to
+   * another session, that turn's measurements belong to the session it left and
+   * must not repaint the status line of the new one.
+   */
+  let sessionEpoch = 0
   let approval: { readonly pending: PendingApproval; readonly resolve: (decision: ApprovalDecision) => void } | undefined
   let question: {
     readonly pending: PendingQuestion
@@ -469,12 +481,40 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
 
   /** Move this loop to another session and show what it contains. */
   const adoptSession = async (id: SessionId, label: string): Promise<void> => {
+    // A turn of the session being left has nothing to say about the new one: it is
+    // cancelled before the switch, so its events cannot repaint this surface. The
+    // cancel is sent for the session being left, which is still the current one.
+    if (running) {
+      // The turn is asked to stop, not torn down: closing its stream under the host
+      // leaves the proxy reporting a broken pipe, and the turn ends on its own
+      // `turn/end` anyway.
+      void options.client.sessions.cancel({ sessionId })
+      note('  (cancelling)\n')
+      // Wait for the abandoned turn to write its last rows, so the clear below is
+      // the last thing that touches this transcript. The wait is bounded: a turn
+      // that never reports back must not leave the switch hanging.
+      const deadline = Date.now() + 5000
+      while (running && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 50))
+      }
+      controller?.abort()
+    }
+    sessionEpoch += 1
     sessionId = id
-    // The transcript follows the session: a previous conversation's answer would
-    // otherwise stay on screen as the newest text, next to another session's work.
+    // The transcript and the meters follow the session: another conversation's
+    // answer would stay on screen as the newest text, and its context percentage
+    // would describe a session this surface no longer talks to.
+    contextPercent = 0
+    options.state.contextPercent = 0
     if (app !== undefined) {
       app.log.clear()
-      app.setStatus({ agents: undefined, tasks: undefined })
+      app.setStatus({
+        contextPercent: 0,
+        agents: undefined,
+        tasks: undefined,
+        tokens: undefined,
+        turnSeconds: undefined,
+      })
       app.render()
     }
     emit(`  ${label}: ${sessionId}\n`)
@@ -506,6 +546,9 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
 
   /** The commands this surface answers itself, with the decision each one asks for. */
   const surfaceCommands: Record<string, () => Promise<void>> = {
+    '/exit': async () => {
+      requestExit?.(0)
+    },
     '/new': async () => {
       const created = await options.client.sessions.create({ cwd: process.cwd() })
       if (!created.result.ok) {
@@ -621,6 +664,21 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     drawZone()
   }
 
+  /**
+   * Whether a draft names a command rather than a message.
+   *
+   * A command typed while a turn runs is still a command: sending `/new` to the
+   * model as steering would spend a request on a line the user meant as an
+   * instruction to the surface.
+   * @param draft - the text in the composer.
+   * @returns true when the line is a command of this surface or of the host.
+   */
+  const namesLocalCommand = (draft: string): boolean => {
+    const name = splitCommand(draft).name
+    if (name === '') return false
+    return surfaceCommands[`/${name}`] !== undefined || namesCommand(draft, options.sources)
+  }
+
   const submit = async (text: string): Promise<void> => {
     const task = text.trim()
     if (task === '') return
@@ -706,6 +764,8 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     // The transcript names the model behind each line, and this surface already
     // tracks the session's route for its status line.
     const route = options.state.model
+    const turnSession = sessionId
+    const turnEpoch = sessionEpoch
     const outcome = await runTurn({
       client: options.client,
       sessionId,
@@ -740,6 +800,17 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     options.state.contextPercent = contextPercent
     controller = undefined
     running = false
+    // A session switch during the turn owns the surface now: the finished turn
+    // belonged to the session that was left, so its measurements must not repaint
+    // the status line of the new one.
+    if (turnEpoch !== sessionEpoch || turnSession !== sessionId) {
+      if (app !== undefined) {
+        app.setRunning(false)
+        drawZone()
+        return
+      }
+      return
+    }
     if (app !== undefined) {
       app.setRunning(false)
       app.setStatus({ contextPercent, turnSeconds: outcome.seconds, mode: options.state.mode })
@@ -811,7 +882,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       note('  (cancelling)\n')
     }
 
-    const handle = (key: KeyEvent, now: number): void => {
+    const handle = (key: KeyEvent): void => {
       // A running command owns the keyboard: a second Enter while one is still
       // reading its registry would submit on top of it and print into a zone
       // the first command is about to redraw.
@@ -901,16 +972,13 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             cancelTurn()
             return
           }
+          // Outside a turn the interrupt leaves: a draft is cleared first, so the
+          // gesture never throws away a half-typed task without a visible step.
           if (draft !== '') {
             draft = ''
             return
           }
-          if (now - lastInterrupt < INTERRUPT_WINDOW_MS) {
-            leave(130)
-            return
-          }
-          lastInterrupt = now
-          note('  (press Ctrl+C again to leave)\n')
+          leave(130)
           return
         case 'ctrl-d':
           if (draft === '') {
@@ -930,12 +998,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             draft += '\n'
             return
           }
-          if (running) void steer(draft)
+          if (running && !namesLocalCommand(draft)) void steer(draft)
           else void submit(draft)
           return
         case 'newline':
           if (options.settings.multiline && draft.trim() !== '') {
-            if (running) void steer(draft)
+            if (running && !namesLocalCommand(draft)) void steer(draft)
             else void submit(draft)
             return
           }
@@ -989,7 +1057,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
 
     const escapeIdle = createEscapeIdle(() => {
-      deliver([{ kind: 'escape' }], Date.now())
+      deliver([{ kind: 'escape' }])
       // The composed surface repaints a diff, so it can be refreshed while a turn
       // runs; the scrollback zone must not be, or it would erase the turn's own
       // output. Keeping the composer in sync at every moment is what stops a
@@ -998,7 +1066,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     })
 
     /** Route decoded keys to the surface that owns them. */
-    function deliver(keys: readonly KeyEvent[], now: number): void {
+    function deliver(keys: readonly KeyEvent[]): void {
       if (app !== undefined) {
         // The surface consumes the wheel and paging itself and forwards every
         // other key back here, so the transcript scrolls without touching the
@@ -1006,12 +1074,11 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         for (const key of keys) app.handleKey(key)
         return
       }
-      for (const key of keys) handle(key, now)
+      for (const key of keys) handle(key)
     }
 
     function onData(chunk: Buffer): void {
-      const now = Date.now()
-      deliver(escapeIdle.push(chunk.toString('utf8')), now)
+      deliver(escapeIdle.push(chunk.toString('utf8')))
       if (app !== undefined || (!running && !commandBusy)) drawZone()
     }
 
@@ -1048,7 +1115,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         if (openTarget(target)) announce(`открыто: ${target}`)
         else emit(`  не удалось открыть: ${target}\n`)
       })
-      app.onUnhandled(key => handle(key, Date.now()))
+      app.onUnhandled(key => handle(key))
       app.start()
     } else if (options.state.branch !== undefined) {
       write(`  session ${sessionId}\n`)
