@@ -10,6 +10,7 @@
  * @module @kibborg/client-node/command-router
  */
 
+import { lastAssistantMessageId, putMessageFeedback } from './message-feedback.ts'
 import { executeCommand, listCommands, type CommandOutcome } from './remote.ts'
 import { formatMcpServers, formatSkills, readMcpServers, readSkills } from './registries.ts'
 import { readHistoryEvents } from './sessions.ts'
@@ -63,6 +64,8 @@ export const LOCAL_COMMANDS: readonly { readonly name: string; readonly descript
   { name: 'mcp', description: 'list the declared MCP servers and their state' },
   { name: 'skills', description: 'list the skills this project offers' },
   { name: 'copy', description: 'copy the last answer to the clipboard' },
+  { name: 'like', description: 'mark the last answer as helpful: /like [note]' },
+  { name: 'dislike', description: 'mark the last answer as unhelpful: /dislike [note]' },
   { name: 'find', description: 'search this conversation: /find <text>' },
   { name: 'transcript', description: 'write this conversation to markdown: /transcript [file]' },
   { name: 'panel', description: 'open the tabs modal: skills, MCP, hooks, plugins, permissions' },
@@ -265,6 +268,19 @@ async function copy(context: LocalCommandContext): Promise<CommandOutcome> {
     : { ok: false, error: 'no clipboard helper is available on this platform' }
 }
 
+/** Record a Like/Dislike for the last answer through the host feedback domain. */
+async function feedback(context: LocalCommandContext, rating: 'positive' | 'negative', argument: string): Promise<CommandOutcome> {
+  const read = await conversation(context)
+  if (read === undefined) return { ok: false, error: 'could not read this session' }
+  const messageId = lastAssistantMessageId(read.events)
+  if (messageId === undefined) return { ok: false, error: 'this session has no answer to rate' }
+  const note = argument.trim() === '' ? undefined : argument
+  const result = await putMessageFeedback(context.ctx, context.sessionId, messageId, rating, note)
+  return result.ok
+    ? { ok: true, text: rating === 'positive' ? 'liked' : 'disliked' }
+    : { ok: false, error: result.reason }
+}
+
 /** Search the conversation for a phrase. */
 async function find(context: LocalCommandContext, argument: string): Promise<CommandOutcome> {
   if (argument.trim() === '') return { ok: false, error: '/find needs text, for example /find sandbox' }
@@ -339,6 +355,8 @@ export async function runLocalCommand(line: string, context: LocalCommandContext
       return { ok: true }
     }
     case 'copy': return await copy(context)
+    case 'like': return await feedback(context, 'positive', argument)
+    case 'dislike': return await feedback(context, 'negative', argument)
     case 'find': return await find(context, argument)
     case 'transcript': return await transcript(context, argument)
     case 'panel': return { ok: false, error: 'the tabs modal needs an interactive terminal' }

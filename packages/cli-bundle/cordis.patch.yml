@@ -8,7 +8,20 @@
 # layer leaves it (deferred), because enabling it aborts this profile's boot.
 # The startup provider (argument families) and the server rows land later.
 
+# Code Mode (`run_code`): the worker-thread execution capability, matching the
+# Web and headless surfaces. The `tools` override opts in through the same
+# DSH_TOOLS_MODE seam (native | code | both); unset keeps the base native default,
+# so mounting the runtime alone changes nothing until a deployment asks for code.
+- id: tools
+  config:
+    mode: !!js process.env.DSH_TOOLS_MODE
+
 - insert:
+    # The worker-thread code runtime behind Code Mode. Inert without the tools
+    # mode above selecting code|both; mirrors dsh-headless and dsh-web-app.
+    - id: code-runtime
+      name: '@deepseek-ai/dsh-code-runtime-worker-thread'
+
     # The workspace registry the API proxy injects, and the storage domain it
     # persists through. The Web surface composes the same trio; the terminal
     # surface keeps the JSON backend so no database server is involved.
@@ -27,6 +40,15 @@
 
     - id: workspace
       name: '@deepseek-ai/dsh-workspace'
+
+    # Per-message Like/Dislike feedback: the host-owned sidecar the terminal's
+    # /like and /dislike commands write through the `messageFeedback` Remote
+    # domain. The Web surface composes the same row and adds a browser UI; the
+    # terminal has no buttons, so the slash commands are its surface.
+    - id: message-feedback
+      name: '@deepseek-ai/dsh-message-feedback'
+      config:
+        maxNoteBytes: 8192
 
     # The picker backend the API proxy injects. `-auto` selects between native
     # and browse from the bind host, which requires a webserver; a terminal

@@ -326,6 +326,8 @@ kibborg attach <url> --token <секрет>                     # полноце
 | `/panels [имя]` | живые данные: `sessions`, `subagents`, `jobs`, `queue`, `context`, `goals`, `todos` |
 | `/find <текст>` | поиск по этой беседе |
 | `/copy` | скопировать последний ответ в буфер обмена |
+| `/like [note]` | отметить последний ответ как полезный (Like) |
+| `/dislike [note]` | отметить последний ответ как неполезный (Dislike) |
 | `/transcript [файл]` | выгрузить беседу в Markdown |
 | `/mcp`, `/skills` | реестры MCP и навыков |
 | `/compact`, `/plan`, `/goal`, `/feedback` | команды хоста: сжатие контекста, план, цель, обратная связь |
@@ -517,6 +519,7 @@ kibborg settings show orchestrator          # настройки оркестр�
 | `KIBBORG_LOG_FILE` | путь журнала; по умолчанию `$DSH_HOME/logs/kibborg.jsonl` |
 | `KIBBORG_TRACE=1` | трассировка решений и клавиш в stderr |
 | `DSH_PERMISSION_MODE` | стартовый режим разрешений (перебивается `/permission`) |
+| `DSH_TOOLS_MODE` | режим исполнения кода: `native` (по умолчанию) или `code`/`both` — включает Code Mode (инструмент `run_code`) |
 | `NO_COLOR`, `TERM=dumb`, `CI` | отключают цвета и интерактив (как принято в CLI) |
 
 ---

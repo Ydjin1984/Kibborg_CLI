@@ -184,6 +184,8 @@ tool-call smoke pipe: ok/fail
 | Models / credentials / settings | ✓ | ✓ | ✓ (loopback-pin) | ✓ (env/флаги) |
 | Diff / изменённые файлы | ✓ | ✓ | ✓ у attach-клиента | JSON-список |
 | Vision / вложения | ✓ | путь + маркер (+делегирование субагенту) | ✓ | путь |
+| Code Mode (`run_code`) | ✓ | ✓ (`DSH_TOOLS_MODE=code\|both`) | ✓ | ✓ |
+| Message feedback (Like/Dislike) | ✓ | ✓ (`/like` `/dislike`) | ✓ (локально) | — |
 | Streaming | WS | ANSI/plain | WS | stream-json |
 | Fullscreen TUI | — | ✓ (K7) | — | — |
 | Оркестратор (executor-модель) | ✓ | ✓ | ✓ | ✓ |
