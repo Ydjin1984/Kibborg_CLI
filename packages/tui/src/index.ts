@@ -16,8 +16,18 @@ export { displayWidth, padLeft, padRight, takeHeadWidth, takeTailWidth } from '.
 export type { FooterInput, StatusInput } from './status.ts'
 export { contextBar, formatTokens, statusLine, thinkingToken, turnFooter } from './status.ts'
 
-export type { ComposerInput, ComposerView } from './composer.ts'
-export { COMPOSER_PREFIX, composerCursorColumn, composerLines, composerView, makeDash } from './composer.ts'
+export type { ComposerFrame, ComposerInput, ComposerView } from './composer.ts'
+export {
+  COMPOSER_CONTINUATION,
+  COMPOSER_MAX_ROWS,
+  COMPOSER_PREFIX,
+  composerCursorColumn,
+  composerCursorRow,
+  composerFrame,
+  composerLines,
+  composerView,
+  makeDash,
+} from './composer.ts'
 
 export type { RenderSink, ToolCallDetail, ToolResultDetail, TurnRenderer, TurnRendererOptions } from './render.ts'
 export { createTurnRenderer } from './render.ts'
@@ -28,7 +38,7 @@ export { isInsertion, parseKeys } from './input.ts'
 export { HISTORY_LIMIT, appendHistory, historyPath, loadHistory, saveHistory } from './history.ts'
 
 export type { ZoneState } from './zone.ts'
-export { cursorColumn, cursorTo, cursorUp, ERASE_DOWN, zoneHeight, zoneLines } from './zone.ts'
+export { cursorColumn, cursorTo, cursorUp, ERASE_DOWN, zoneCursor, zoneHeight, zoneLines } from './zone.ts'
 
 export type { SessionRow, SessionTableOptions } from './session-table.ts'
 export { relativeAge, sessionTable } from './session-table.ts'

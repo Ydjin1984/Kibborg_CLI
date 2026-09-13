@@ -43,6 +43,7 @@
     "@deepseek-ai/dsh-storage": "workspace:^",
     "@deepseek-ai/dsh-storage-domain": "workspace:^",
     "@deepseek-ai/dsh-storage-json": "workspace:^",
+    "@deepseek-ai/dsh-tool-ask-user": "workspace:^",
     "@deepseek-ai/dsh-workspace": "workspace:^",
     "@kibborg/client-node": "workspace:^",
     "@kibborg/server": "workspace:^",

@@ -661,6 +661,12 @@ export function createApp(options: AppOptions): App {
           return
         case 'up':
         case 'down': {
+          // A box that moves its own highlight owns the arrows: sending them on
+          // to the loop is what lets its selection follow the keys.
+          if (dialog !== null && dialog.passthroughArrows === true) {
+            unhandled?.(key)
+            return
+          }
           // With an empty composer the arrows read the transcript, which is what
           // a user expects while reviewing a long answer; once there is a draft
           // they belong to the input line and recall history there.

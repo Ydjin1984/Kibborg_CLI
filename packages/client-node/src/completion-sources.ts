@@ -84,3 +84,40 @@ export async function loadCompletionSources(
   ])
   return { commands: options.commands, files, sessions }
 }
+
+/**
+ * The sources a surface can hold before the candidate scan runs.
+ *
+ * Command names come from the host registry and are needed for every submitted
+ * line, while the file and session candidates are only read by Tab. Scanning a
+ * large working directory and listing every stored session before the first frame
+ * made the surface feel slow to open, so the scan waits for the first completion.
+ * @param commands - slash command names, without the leading slash.
+ * @returns sources with empty candidate sets.
+ */
+export function emptyCompletionSources(commands: readonly string[]): CompletionSources {
+  return { commands, files: [], sessions: [] }
+}
+
+/**
+ * Fill in the file and session candidates of existing sources.
+ *
+ * The sets are replaced in place so a surface that already holds the object sees
+ * the candidates without rebinding anything.
+ * @param client - the in-process API client.
+ * @param options - the working directory and the sources to fill.
+ * @returns the filled sources.
+ */
+export async function fillCompletionSources(
+  client: IApiClient,
+  options: { readonly cwd: string; readonly sources: CompletionSources },
+): Promise<CompletionSources> {
+  const [files, sessions] = await Promise.all([
+    listWorkspaceFiles(options.cwd),
+    sessionCandidates(client),
+  ])
+  const target = options.sources as { files: readonly string[]; sessions: readonly string[] }
+  target.files = files
+  target.sessions = sessions
+  return options.sources
+}

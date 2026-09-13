@@ -8,7 +8,7 @@
  * @module @kibborg/tui/zone
  */
 
-import { composerLines, type ComposerInput } from './composer.ts'
+import { COMPOSER_MAX_ROWS, composerCursorColumn, composerCursorRow, composerLines, type ComposerInput } from './composer.ts'
 import { statusLine, type StatusInput } from './status.ts'
 import type { Palette } from './tokens.ts'
 
@@ -34,9 +34,12 @@ export interface ZoneState {
 
 /**
  * Render the zone's rows.
+ *
+ * The composer grows with the draft, so the zone's height follows the draft: the
+ * overlay, the composer rows, and the status row.
  * @param state - the zone's current values.
  * @param palette - the active palette.
- * @returns overlay rows (when present), four composer rows, and the status row.
+ * @returns overlay rows (when present), the composer's rows, and the status row.
  */
 export function zoneLines(state: ZoneState, palette: Palette): readonly string[] {
   const composer = composerLines(
@@ -45,6 +48,19 @@ export function zoneLines(state: ZoneState, palette: Palette): readonly string[]
   )
   const status = statusLine({ ...state.status, cols: state.cols }, palette)
   return [...(state.overlay ?? []), ...composer, status]
+}
+
+/**
+ * Where the caret belongs inside the zone, counting from the zone's first row.
+ * @param state - the zone's current values.
+ * @returns the zero-based row and column of the caret.
+ */
+export function zoneCursor(state: ZoneState): { readonly row: number; readonly column: number } {
+  const overlayRows = state.overlay?.length ?? 0
+  return {
+    row: overlayRows + composerCursorRow(state.draft, COMPOSER_MAX_ROWS),
+    column: composerCursorColumn(state.draft, state.innerWidth),
+  }
 }
 
 /**

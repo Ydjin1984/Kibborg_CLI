@@ -160,7 +160,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
 // screen took, but still waits the full budget: while the welcome screen is up
 // the surface handles keys itself, and a command typed during that window is
 // read as the screen's own key rather than as a submitted line.
-const readyMarker = flag('--ready-marker', '· idle')
+const readyMarker = flag('--ready-marker', 'ctx ')
 const startedAt = Date.now()
 const deadline = startedAt + bootMs
 while (Date.now() < deadline && !raw.includes(readyMarker)) await sleep(250)

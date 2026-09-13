@@ -24,8 +24,7 @@ import {
   appendHistory,
   completeDraft,
   completionHint,
-  composerCursorColumn,
-  composerLines,
+  composerFrame,
   computeLayout,
   createBuffer,
   createScreen,
@@ -37,7 +36,9 @@ import {
   makeDash,
   paletteForTheme,
   panelLines,
+  permissionDialog,
   plainPalette,
+  questionDialog,
   spinnerFrame,
   statusLine,
   thinkingToken,
@@ -51,6 +52,12 @@ import {
 import { runTurn } from './turn.ts'
 import { createEscapeIdle } from './escape-idle.ts'
 import { splitCommand, type SurfaceState } from './command-router.ts'
+import {
+  type ApprovalDecision,
+  type PendingApproval,
+  type PendingQuestion,
+  type QuestionAnswer,
+} from './interaction.ts'
 import { actOnPanel, movePanelSelection, switchPanelTab, type PanelSession, type PanelState } from './panel.ts'
 import { formatPanelSnapshot, PANEL_NAMES, readPanelSnapshot, type PanelName } from './panels.ts'
 import type { CommandOutcome } from './remote.ts'
@@ -79,6 +86,13 @@ export interface FullscreenSession {
   readonly home: string
   /** Candidate sets the Tab key completes from. */
   readonly sources: CompletionSources
+  /**
+   * Load the file and session candidates the first completion needs.
+   *
+   * The scan waits for Tab: a deep working directory and a long stored history
+   * cost seconds, and the frame has to appear without them.
+   */
+  readonly fillSources?: () => Promise<void>
   /** The tabs modal: how to read it and what to act through. */
   readonly panel: { open(): Promise<PanelState>; readonly session: PanelSession }
   /** Runs one slash line; the local router owns its own commands and writes through the given sink. */
@@ -247,6 +261,63 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
   }
   let exitCode: number | undefined
   let animation: NodeJS.Timeout | undefined
+  /** Whether the deferred completion scan has run. */
+  let sourcesFilled = false
+  /** The request the turn is waiting on, and the question batch it asked. */
+  let approval: { readonly pending: PendingApproval; readonly resolve: (decision: ApprovalDecision) => void } | undefined
+  let question: {
+    readonly pending: PendingQuestion
+    readonly resolve: (answers: readonly QuestionAnswer[] | undefined) => void
+    readonly collected: QuestionAnswer[]
+    index: number
+    /** Highlighted option of the question on screen. */
+    selected: number
+    /** Options marked in a multi-select question. */
+    chosen: number[]
+  } | undefined
+
+  /** Ask this surface to answer an approval request. */
+  const askApproval = (pending: PendingApproval): Promise<ApprovalDecision> =>
+    new Promise<ApprovalDecision>(resolve => {
+      approval = { pending, resolve }
+      render()
+    })
+
+  /** Ask this surface to answer a batch of questions, one at a time. */
+  const askQuestion = (pending: PendingQuestion): Promise<readonly QuestionAnswer[] | undefined> =>
+    new Promise<readonly QuestionAnswer[] | undefined>(resolve => {
+      question = { pending, resolve, collected: [], index: 0, selected: 0, chosen: [] }
+      draft = ''
+      render()
+    })
+
+  /** Submit the highlighted answer of the question on screen. */
+  const acceptCurrentQuestion = (): void => {
+    const active = question
+    if (active === undefined) return
+    const current = active.pending.questions[active.index]
+    if (current === undefined) return
+    const options = current.options ?? []
+    const selected = current.multiSelect === true && active.chosen.length > 0
+      ? active.chosen.map(index => options[index]?.label ?? '').filter(label => label !== '')
+      : options[active.selected] === undefined ? [] : [options[active.selected]?.label as string]
+    if (selected.length === 0) {
+      hint = 'выберите вариант стрелками или введите свой ответ'
+      render()
+      return
+    }
+    active.collected.push({ id: current.id, selected })
+    active.index += 1
+    active.selected = 0
+    active.chosen = []
+    draft = ''
+    hint = ''
+    if (active.index >= active.pending.questions.length) {
+      question = undefined
+      active.resolve(active.collected)
+    }
+    render()
+  }
 
   const restore = (): void => {
     if (animation !== undefined) clearInterval(animation)
@@ -263,12 +334,36 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     // drawing so the frame never shows an empty window by accident.
     scroll = Math.min(scroll, Math.max(0, feedLength(feed) - 1))
     const innerWidth = Math.max(20, cols - 4)
-    const composer = composerLines({ draft, innerWidth, showHint: draft === '' && !running }, palette)
-    const overlayLines = panel !== undefined
+    const composerFrameView = composerFrame({ draft, innerWidth, showHint: draft === '' && !running }, palette)
+    const composer = composerFrameView.lines
+    // A request the turn waits on owns the overlay: a question or an approval is
+    // the only thing the user can answer, so it must be on screen while it waits.
+    const requestLines = approval !== undefined
+      ? permissionDialog({
+          tool: approval.pending.toolName,
+          target: approval.pending.reason ?? '',
+        }).lines.map(line => line.spans.map(span => span.text).join(''))
+      : undefined
+    const questionLines = question === undefined
+      ? undefined
+      : (() => {
+          const current = question.pending.questions[question.index]
+          if (current === undefined) return undefined
+          return questionDialog({
+            question: current.question,
+            index: question.index + 1,
+            total: question.pending.questions.length,
+            options: (current.options ?? []).map(option => option.label),
+            selected: question.selected,
+            ...(current.multiSelect === true ? { multi: true } : {}),
+            ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
+          }).lines.map(line => line.spans.map(span => span.text).join(''))
+        })()
+    const overlayLines = requestLines ?? questionLines ?? (panel !== undefined
       ? panelLines(panel.view, { palette, cols })
       : sidePanel !== undefined
         ? [`  ${panelTitle(sidePanel.name)}`, ...sidePanel.lines.map(line => `  ${line}`)]
-        : (hint === '' ? [] : [`  ${hint}`])
+        : (hint === '' ? [] : [`  ${hint}`]))
     const layout = computeLayout(cols, rows, {
       density: densityFor(cols),
       composerHeight: composer.length,
@@ -320,7 +415,7 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     }, palette)
     if (layout.status !== null) buffer.write(0, layout.status.y, status.slice(0, cols), 'Muted')
     screen.present(buffer)
-    screen.setCursor(layout.composer.y + 1, composerCursorColumn(draft, innerWidth) + 3)
+    screen.setCursor(layout.composer.y + composerFrameView.cursorRow, composerFrameView.cursorColumn)
   }
 
   /**
@@ -395,6 +490,10 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       signal: controller.signal,
       ...session.state.model === undefined || session.state.model === '' ? {} : { model: session.state.model },
       ...(session.settings.timestamps ? { timestamps: true } : {}),
+      // A question or an approval has to reach this surface: without the callbacks
+      // the host applies the headless policy, and the model can never offer a choice.
+      onApproval: askApproval,
+      onQuestion: askQuestion,
     })
     if (animation !== undefined) clearInterval(animation)
     animation = undefined
@@ -433,6 +532,66 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
           return
         default:
           return
+      }
+    }
+    if (approval !== undefined) {
+      const active = approval
+      const decide = (decision: ApprovalDecision): void => {
+        approval = undefined
+        hint = ''
+        active.resolve(decision)
+        render()
+      }
+      switch (key.kind) {
+        case 'char':
+          if (key.text === 'y' || key.text === 'Y' || key.text === 'a' || key.text === 'A') decide('allowed-once')
+          else if (key.text === 'n' || key.text === 'N') decide('rejected')
+          return
+        case 'enter':
+          decide('allowed-once')
+          return
+        case 'escape':
+        case 'ctrl-c':
+          decide('rejected')
+          return
+        default:
+          return
+      }
+    }
+    if (question !== undefined) {
+      const active = question
+      const options = active.pending.questions[active.index]?.options ?? []
+      const multi = active.pending.questions[active.index]?.multiSelect === true
+      switch (key.kind) {
+        case 'up':
+        case 'down': {
+          if (options.length === 0) return
+          const step = key.kind === 'up' ? -1 : 1
+          active.selected = (active.selected + step + options.length) % options.length
+          render()
+          return
+        }
+        case 'enter':
+          acceptCurrentQuestion()
+          return
+        case 'char':
+          if (key.text === ' ' && multi) {
+            const at = active.chosen.indexOf(active.selected)
+            if (at === -1) active.chosen.push(active.selected)
+            else active.chosen.splice(at, 1)
+            render()
+            return
+          }
+          break
+        case 'escape':
+        case 'ctrl-c':
+          question = undefined
+          hint = ''
+          active.resolve(undefined)
+          render()
+          return
+        default:
+          break
       }
     }
     if (panel !== undefined) {
@@ -567,13 +726,28 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
         render()
         return
       case 'tab': {
-        const completed = completeDraft(draft, session.sources)
-        if (completed.active) {
-          draft = completed.draft
-          hint = completed.candidates.length > 1 ? completionHint(completed.candidates) : ''
-          if (completed.candidates.length === 0) hint = 'no match'
+        const apply = (): void => {
+          const completed = completeDraft(draft, session.sources)
+          if (completed.active) {
+            draft = completed.draft
+            hint = completed.candidates.length > 1 ? completionHint(completed.candidates) : ''
+            if (completed.candidates.length === 0) hint = 'no match'
+          }
+          render()
         }
-        render()
+        // The candidate scan is deferred to the first completion: walking a deep
+        // working directory and listing the stored sessions must not delay the frame.
+        if (session.fillSources !== undefined && !sourcesFilled) {
+          sourcesFilled = true
+          hint = 'собираю подсказки…'
+          render()
+          void session.fillSources().catch(() => undefined).then(() => {
+            hint = ''
+            apply()
+          })
+          return
+        }
+        apply()
         return
       }
       case 'up':

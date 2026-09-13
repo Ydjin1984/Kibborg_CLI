@@ -61,6 +61,12 @@
     - id: orchestrator
       name: '@deepseek-ai/dsh-orchestrator'
 
+    # The model-facing question tool. The base layer ships the `userQuestions`
+    # seam this row consumes, so without it a model facing an ambiguous task can
+    # only guess: there is no way to offer the user a choice.
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
+
     # The plugin inventory: the Loader's own entry list, which the tabs modal's
     # Plugins tab reads. Host-plane and read-only from this surface.
     - id: plugin-inventory

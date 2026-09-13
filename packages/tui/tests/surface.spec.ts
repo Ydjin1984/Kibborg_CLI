@@ -7,6 +7,7 @@ import { decodeSgrMouse, decodeX10Mouse, wheelDelta } from '../src/mouse.ts'
 import { createApp } from '../src/app.ts'
 import { plainPalette } from '../src/tokens.ts'
 import { statusLine } from '../src/status.ts'
+import { zoneCursor, zoneLines } from '../src/zone.ts'
 import { renderHeader } from '../src/header.ts'
 import { displayWidth } from '../src/width.ts'
 
@@ -504,6 +505,71 @@ describe('fullscreen app', () => {
     app.handleKey({ kind: 'mouse', event: { action: 'release', x: 59, y: 15, shift: false, alt: false, ctrl: false } })
     expect(picked).toHaveLength(1)
     app.stop()
+  })
+
+  it('lets the arrows reach a question box that owns its own selection', () => {
+    const { stream } = fakeStream(80, 24)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const handled: string[] = []
+    app.onUnhandled(key => { handled.push(key.kind) })
+    app.start()
+    app.setDialog({ token: 'PermLav', label: 'Question 1/1', lines: [{ spans: [] }], passthroughArrows: true })
+    app.handleKey({ kind: 'up' })
+    app.handleKey({ kind: 'down' })
+    // The loop that owns the question moves the highlight, so the frame must not
+    // swallow the arrows.
+    expect(handled).toEqual(['up', 'down'])
+    // A box that does not ask for them keeps the arrows: its own highlight moves.
+    handled.length = 0
+    app.setDialog({ token: 'PermLav', label: 'Question 1/1', lines: [{ spans: [] }, { spans: [] }] })
+    app.handleKey({ kind: 'down' })
+    expect(handled).toEqual([])
+    app.stop()
+  })
+
+  it('grows the lower zone with the draft and scrolls its own rows', () => {
+    const draft = Array.from({ length: 12 }, (_, index) => `строка ${String(index + 1)}`).join('\n')
+    const state = {
+      draft,
+      innerWidth: 60,
+      showHint: false,
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      cols: 80,
+    }
+    const lines = zoneLines(state, plainPalette)
+    const text = lines.join('\n')
+    // The newest rows are on screen, and the first one says how many are above.
+    expect(text).toContain('строка 12')
+    expect(text).toContain('▲ 4')
+    // The zone is taller than the four rows a single-line composer needs.
+    expect(lines.length).toBeGreaterThan(6)
+    const caret = zoneCursor(state)
+    expect(caret.row).toBeGreaterThan(0)
+    expect(caret.row).toBeLessThan(lines.length)
+  })
+
+  it('shows a short draft in full and keeps the caret on its last row', () => {
+    const state = {
+      draft: ['первая', 'вторая', 'третья'].join('\n'),
+      innerWidth: 60,
+      showHint: false,
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      cols: 80,
+    }
+    const lines = zoneLines(state, plainPalette)
+    const text = lines.join('\n')
+    expect(text).toContain('первая')
+    expect(text).toContain('третья')
+    expect(text).not.toContain('▲')
+    expect(zoneCursor(state).row).toBe(3)
   })
 
   it('shows a confirmation briefly and then removes it', async () => {

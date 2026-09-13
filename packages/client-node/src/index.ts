@@ -27,7 +27,7 @@ import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apipro
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import { paletteForTheme, statusLine } from '@kibborg/tui'
 import { LOCAL_COMMANDS, nearestCommand, routeCommand, splitCommand, type SurfaceState } from './command-router.ts'
-import { loadCompletionSources } from './completion-sources.ts'
+import { emptyCompletionSources, fillCompletionSources } from './completion-sources.ts'
 import { exportSessionLog } from './export-session.ts'
 import { readIntent } from './intent.ts'
 import { createHeadlessWriter, parseStructured, type OutputFormat } from './headless.ts'
@@ -350,10 +350,16 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
     const surface = await readSurfaceSettings(client)
     const state = surfaceStateOf(badge, git)
     const hostEntries = attached ? [] : await listCommands(ctx, sessionId)
-    const sources = await loadCompletionSources(client, {
-      cwd: process.cwd(),
-      commands: [...LOCAL_COMMANDS.map(command => command.name), ...hostEntries.map(entry => entry.name)],
-    })
+    // Only the command names are needed to open the surface; the candidate scan
+    // waits for the first Tab, so a large working directory and a long session
+    // history do not delay the first frame.
+    const sources = emptyCompletionSources([
+      ...LOCAL_COMMANDS.map(command => command.name),
+      ...hostEntries.map(entry => entry.name),
+    ])
+    const fillSources = async (): Promise<void> => {
+      await fillCompletionSources(client, { cwd: process.cwd(), sources })
+    }
     const panel: { open(): Promise<PanelState>; readonly session: PanelSession } = {
       open: () => openPanel({ ctx, client, sessionId, write: chunk => void process.stdout.write(chunk) }),
       session: { ctx, client, sessionId, write: chunk => void process.stdout.write(chunk) },
@@ -367,6 +373,7 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
         settings: surfaceSettings,
         home: dshHome(),
         sources,
+        fillSources,
         panel,
         onCommand: (line, write) => routeCommand(line, {
           ctx,
@@ -391,6 +398,7 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
       home: dshHome(),
       settings: surfaceSettings,
       sources,
+      fillSources,
       panel,
       onCommand: (line, write) => routeCommand(line, {
         ctx,

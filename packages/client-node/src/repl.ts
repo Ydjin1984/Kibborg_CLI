@@ -20,7 +20,6 @@ import {
   commandMenuItems,
   completeDraft,
   completionHint,
-  composerCursorColumn,
   createApp,
   createLogRenderer,
   cursorColumn,
@@ -35,6 +34,7 @@ import {
   plainPalette,
   questionDialog,
   statusLine,
+  zoneCursor,
   zoneLines,
   type App,
   type CompletionSources,
@@ -95,6 +95,13 @@ export interface ReplOptions {
   readonly settings: SurfaceSettings
   /** Candidate sets the Tab key completes from; its command names classify a slash line. */
   readonly sources: CompletionSources
+  /**
+   * Load the file and session candidates the first completion needs.
+   *
+   * The scan is deferred until Tab is pressed: a deep working directory and a long
+   * stored history cost seconds, and the surface has to open without them.
+   */
+  readonly fillSources?: () => Promise<void>
   /** Runs a slash command; the local router owns its own lines and delegates the rest. */
   readonly onCommand: (line: string, write: (chunk: string) => void) => Promise<CommandOutcome>
   /** The tabs modal: how to read its registries and what to act through. */
@@ -171,14 +178,20 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       const pending = question.pending
       const current = pending.questions[question.index]
       if (current === undefined) return null
-      return questionDialog({
-        question: current.question,
-        index: question.index + 1,
-        total: pending.questions.length,
-        options: (current.options ?? []).map(option => option.label),
-        selected: 0,
-        ...(current.multiSelect === true ? { multi: true } : {}),
-      })
+      // The arrows belong to the loop here: it moves the highlight and the box is
+      // redrawn with it, which is what the box's key legend promises.
+      return {
+        ...questionDialog({
+          question: current.question,
+          index: question.index + 1,
+          total: pending.questions.length,
+          options: (current.options ?? []).map(option => option.label),
+          selected: question.selected,
+          ...(current.multiSelect === true ? { multi: true } : {}),
+          ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
+        }),
+        passthroughArrows: true,
+      }
     }
     return null
   }
@@ -229,12 +242,20 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
    * must not repaint the status line of the new one.
    */
   let sessionEpoch = 0
+  /** Whether the deferred completion scan has run. */
+  let sourcesFilled = false
+  /** Restores stderr once the loop owns it; a no-op until then. */
+  let releaseStderr = (): void => undefined
   let approval: { readonly pending: PendingApproval; readonly resolve: (decision: ApprovalDecision) => void } | undefined
   let question: {
     readonly pending: PendingQuestion
     readonly resolve: (answers: readonly QuestionAnswer[] | undefined) => void
     readonly collected: QuestionAnswer[]
     index: number
+    /** Highlighted option of the question on screen. */
+    selected: number
+    /** Options marked in a multi-select question. */
+    chosen: number[]
   } | undefined
 
   /** Overlay rows describing whatever the surface is waiting on. */
@@ -250,20 +271,22 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     if (question !== undefined) {
       const current = question.pending.questions[question.index]
       if (current === undefined) return []
-      const lines = [
-        `  ${palette.paint(current.question, 'Text')}`,
-      ]
+      const box = questionDialog({
+        question: current.question,
+        index: question.index + 1,
+        total: question.pending.questions.length,
+        options: (current.options ?? []).map(option => option.label),
+        selected: question.selected,
+        ...(current.multiSelect === true ? { multi: true } : {}),
+        ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
+      })
+      const lines = [`  ${palette.paint(box.label, 'PermLav', { bold: true })}`]
       if (current.detail !== undefined) {
-        for (const line of current.detail.split('\n').slice(0, 12)) lines.push(`  ${palette.paint(line, 'Muted')}`)
+        for (const line of current.detail.split('\n').slice(0, 8)) lines.push(`  ${palette.paint(line, 'Muted')}`)
       }
-      const options = current.options ?? []
-      for (const [index, option] of options.entries()) {
-        lines.push(`    ${palette.paint(`${String(index + 1)}.`, 'Accent')} ${palette.paint(option.label, 'Text')}`)
+      for (const line of box.lines) {
+        lines.push(`  ${line.spans.map(span => palette.paint(span.text, span.token, { bold: span.bold === true, dim: span.dim === true })).join('')}`)
       }
-      const hint = current.multiSelect === true
-        ? '  type option numbers separated by commas, or other:<text>'
-        : '  type an option number, or other:<text>'
-      lines.push(`  ${palette.paint(hint, 'Muted')}`)
       return lines
     }
     return []
@@ -286,11 +309,45 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   /** Ask the terminal to answer a batch of questions, one at a time. */
   const askQuestion = (pending: PendingQuestion): Promise<readonly QuestionAnswer[] | undefined> =>
     new Promise<readonly QuestionAnswer[] | undefined>(resolve => {
-      question = { pending, resolve, collected: [], index: 0 }
+      question = { pending, resolve, collected: [], index: 0, selected: 0, chosen: [] }
       draft = ''
       overlay = pendingOverlay()
       drawZone()
     })
+
+  /** Submit the currently highlighted answer of an open question. */
+  const acceptCurrentQuestion = (): void => {
+    const active = question
+    if (active === undefined) return
+    const current = active.pending.questions[active.index]
+    if (current === undefined) return
+    const options = current.options ?? []
+    const selected = current.multiSelect === true && active.chosen.length > 0
+      ? active.chosen.map(index => options[index]?.label ?? '').filter(label => label !== '')
+      : options[active.selected] === undefined ? [] : [options[active.selected]?.label as string]
+    if (selected.length === 0) {
+      note('  (выберите вариант стрелками или введите свой ответ)\n')
+      drawZone()
+      return
+    }
+    const answer: QuestionAnswer = {
+      id: current.id,
+      selected,
+    }
+    active.collected.push(answer)
+    active.index += 1
+    active.selected = 0
+    active.chosen = []
+    draft = ''
+    if (active.index >= active.pending.questions.length) {
+      question = undefined
+      overlay = []
+      active.resolve(active.collected)
+    } else {
+      overlay = pendingOverlay()
+    }
+    drawZone()
+  }
 
   /** Resolve the active question with the line the user typed. */
   const answerCurrentQuestion = (text: string): void => {
@@ -362,9 +419,19 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }, palette)
     write(`${lines.join('\n')}\n`)
     zoneHeight = lines.length
-    const toInputRow = zoneHeight - (overlayLines.length + 1)
+    // The caret belongs inside the composer, which sits under the overlay and
+    // above the status row; its row follows the draft as the box grows.
+    const caret = zoneCursor({
+      draft,
+      innerWidth,
+      showHint: !running,
+      status: { model: options.state.model, contextPercent, mode: options.state.mode },
+      cols,
+      ...(overlayLines.length === 0 ? {} : { overlay: overlayLines }),
+    })
+    const toInputRow = zoneHeight - caret.row
     if (toInputRow > 0) write(cursorUp(toInputRow))
-    write(cursorColumn(composerCursorColumn(draft, innerWidth)))
+    write(cursorColumn(caret.column))
   }
 
   const clearZone = (): void => {
@@ -864,11 +931,33 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   }
 
   return await new Promise<number>(resolve => {
+    /**
+     * Keep host diagnostics out of the frame.
+     *
+     * A plugin that writes to stderr while the surface owns the screen paints over
+     * the composer — a stack trace through the input box. Those lines are folded
+     * into the transcript instead, and restored when the loop ends.
+     */
+    const captureStderr = (): void => {
+      const original = process.stderr.write.bind(process.stderr)
+      process.stderr.write = ((chunk: unknown): boolean => {
+        for (const line of String(chunk).split('\n')) {
+          const trimmed = line.trimEnd()
+          if (trimmed.trim() !== '') note(`  ${trimmed}\n`)
+        }
+        return true
+      }) as typeof process.stderr.write
+      releaseStderr = () => {
+        process.stderr.write = original
+      }
+    }
+
     const leave = (code: number): void => {
       escapeIdle.stop()
       stdin.setRawMode(false)
       stdin.pause()
       stdin.off('data', onData)
+      releaseStderr()
       if (app !== undefined) app.stop()
       else write('\n')
       resolve(code)
@@ -877,8 +966,14 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
 
     const cancelTurn = (): void => {
       if (!running) return
-      controller?.abort()
+      // The host is asked to stop the turn first: tearing the stream down under it
+      // makes the proxy enqueue into a closed controller, which it then reports as
+      // a stream error on stderr. The abort is the fallback for a turn that does
+      // not answer within a couple of seconds.
       void options.client.sessions.cancel({ sessionId })
+      const pending = controller
+      const timer = setTimeout(() => pending?.abort(), 2000)
+      timer.unref()
       note('  (cancelling)\n')
     }
 
@@ -949,13 +1044,34 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         }
       }
       if (question !== undefined) {
+        const active = question
+        const options = active.pending.questions[active.index]?.options ?? []
+        const multi = active.pending.questions[active.index]?.multiSelect === true
         switch (key.kind) {
-          case 'enter':
-            answerCurrentQuestion(draft)
+          case 'up':
+          case 'down': {
+            if (options.length === 0) return
+            const step = key.kind === 'up' ? -1 : 1
+            active.selected = (active.selected + step + options.length) % options.length
+            drawZone()
             return
+          }
+          case 'enter':
+            // A line the user typed is their own answer; otherwise the highlighted
+            // option is the answer, which is what the box's key legend promises.
+            if (draft.trim() !== '') answerCurrentQuestion(draft)
+            else acceptCurrentQuestion()
+            return
+          case 'char': {
+            if (key.text !== ' ' || !multi) break
+            const at = active.chosen.indexOf(active.selected)
+            if (at === -1) active.chosen.push(active.selected)
+            else active.chosen.splice(at, 1)
+            drawZone()
+            return
+          }
           case 'escape':
           case 'ctrl-c': {
-            const active = question
             question = undefined
             overlay = []
             active.resolve(undefined)
@@ -1028,15 +1144,32 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         case 'tab': {
           // A prefix completes against its own source; a bare draft falls back
           // to the input history, which is the only completion with no prefix.
-          const completed = completeDraft(draft, options.sources)
-          if (completed.active) {
-            draft = completed.draft
-            hint = completed.candidates.length > 1 ? completionHint(completed.candidates) : ''
-            if (completed.candidates.length === 0) hint = 'no match'
+          const apply = (): void => {
+            const completed = completeDraft(draft, options.sources)
+            if (completed.active) {
+              draft = completed.draft
+              hint = completed.candidates.length > 1 ? completionHint(completed.candidates) : ''
+              if (completed.candidates.length === 0) hint = 'no match'
+              drawZone()
+              return
+            }
+            hint = ''
+            completeFromHistory()
+            drawZone()
+          }
+          // The candidate scan is deferred to the first completion, so the surface
+          // opens without walking the working directory and the session store.
+          if (options.fillSources !== undefined && !sourcesFilled) {
+            sourcesFilled = true
+            hint = 'собираю подсказки…'
+            drawZone()
+            void options.fillSources().catch(() => undefined).then(() => {
+              hint = ''
+              apply()
+            })
             return
           }
-          hint = ''
-          completeFromHistory()
+          apply()
           return
         }
         case 'up':
@@ -1122,6 +1255,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
     stdin.setRawMode(true)
     stdin.resume()
+    captureStderr()
     stdin.on('data', onData)
     drawZone()
   })

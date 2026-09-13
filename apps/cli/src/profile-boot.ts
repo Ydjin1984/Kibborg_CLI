@@ -173,8 +173,9 @@ export async function runProfile(options: RunProfileOptions): Promise<Context> {
     if (process.env.KIBBORG_TRACE === '1') console.log(`kibborg[trace]: ${message}`)
   }
   trace('composing profile')
+  const composedAt = Date.now()
   const composed = composeProfile(options.patchFiles)
-  trace(`profile ready: ${composed.profile.dir}; rows=${String(composed.rows.size)}`)
+  trace(`profile ready: ${composed.profile.dir}; rows=${String(composed.rows.size)} (+${String(Date.now() - composedAt)}ms)`)
   const homePatches = loadOptionalPatches(NAME, homePatchPath()) ?? []
   const app: { current?: Context } = {}
   const signalShutdown = new AbortController()
@@ -202,14 +203,26 @@ export async function runProfile(options: RunProfileOptions): Promise<Context> {
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlays,
   ])
+  const bootAt = Date.now()
+  const marks: string[] = []
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed, homePatches)), (hostCtx) => {
     app.current = hostCtx
+    if (process.env.KIBBORG_TRACE === '1') {
+      hostCtx.on('internal/plugin', (fiber: { readonly name?: string }) => {
+        marks.push(`mount ${String(fiber.name ?? '?')} +${String(Date.now() - bootAt)}ms`)
+      })
+      hostCtx.on('internal/status', (fiber: { readonly name?: string }, state: unknown) => {
+        marks.push(`${String(state)} ${String(fiber.name ?? '?')} +${String(Date.now() - bootAt)}ms`)
+      })
+    }
     hostCtx.provide(DSH_LAUNCH_ENVIRONMENT_KEY, options.environment)
     provideCmdline(hostCtx, {
       args: options.args,
       exit: code => void shutdown(code),
     })
   })
+  trace(`tree mounted (+${String(Date.now() - bootAt)}ms)`)
+  for (const mark of marks.slice(-40)) trace(`  ${mark}`)
   app.current = ctx
   if (!signalShutdown.signal.aborted
     && ctx.fiber.state === FiberState.ACTIVE
