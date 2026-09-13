@@ -433,6 +433,8 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
   let streamed = false
   let tokens = 0
   let answer = ''
+  /** When the model started reasoning in the current step, if it is reasoning. */
+  let thinkingSince: number | undefined
   let turnsSeen = 0
   /** When each running tool call started, so its result can report a duration. */
   const toolStarts = new Map<string, number>()
@@ -580,8 +582,23 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
 
     if (event.type === 'assistant/chunk') {
       const chunk = event.data.chunk
-      // Reasoning deltas are dropped: hidden reasoning is not user-facing (R10).
+      // The reasoning text stays hidden, but the fact that the model reasoned and
+      // how long it spent is part of the transcript: a pause the user cannot
+      // account for otherwise reads as a hang.
+      if (chunk.type === 'reasoning-delta') {
+        if (thinkingSince === undefined) thinkingSince = Date.now()
+        continue
+      }
+      if (chunk.type === 'block-end' && chunk.block.type === 'reasoning') {
+        if (thinkingSince !== undefined) renderer.thought(Date.now() - thinkingSince)
+        thinkingSince = undefined
+        continue
+      }
       if (chunk.type === 'text-delta') {
+        if (thinkingSince !== undefined) {
+          renderer.thought(Date.now() - thinkingSince)
+          thinkingSince = undefined
+        }
         answer += chunk.text
         renderer.text(chunk.text)
         streamed = true

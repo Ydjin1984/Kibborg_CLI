@@ -225,6 +225,15 @@ describe('transcript rendering', () => {
     }
   })
 
+  it('reports that the model reasoned without showing the reasoning', () => {
+    const log = createLog()
+    log.append({ kind: 'thought', text: 'внутренние рассуждения', durationMs: 2200 })
+    const text = renderEntries(log.entries, 80).map(plainText).join('\n')
+    expect(text).toContain('♦ Думал 2.2s')
+    // The reasoning body itself never reaches the transcript.
+    expect(text).not.toContain('внутренние рассуждения')
+  })
+
   it('shows the running turn as one work row with time, tokens, and the stop key', () => {
     const log = createLog()
     const id = log.append({
@@ -308,6 +317,15 @@ describe('transcript rendering', () => {
     expect(text).toContain('OUT The file a.txt has been updated')
     const diffTokens = lines.flatMap(line => line.spans).filter(span => span.token === 'DiffAdd' || span.token === 'DiffRemove')
     expect(diffTokens.length).toBeGreaterThan(0)
+    // Unchanged context recedes so the two changed rows carry the eye, and the
+    // added and removed rows take one accent each.
+    const added = lines.flatMap(line => line.spans).find(span => span.text === '+y')
+    const removed = lines.flatMap(line => line.spans).find(span => span.text === '-x')
+    const context = lines.flatMap(line => line.spans).find(span => span.text.trim() === 'context')
+    expect(added?.token).toBe('DiffAdd')
+    expect(removed?.token).toBe('DiffRemove')
+    expect(context?.token).toBe('Muted')
+    expect(context?.dim).toBe(true)
   })
 
   it('marks the task row of a user entry as the heading of its branch', () => {

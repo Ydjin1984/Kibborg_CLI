@@ -110,6 +110,14 @@ export interface TurnRenderer {
   agentDone?(badge: AgentBadge, summary?: string): void
   /** Append a streamed piece of the assistant's visible text. */
   text(delta: string): void
+  /**
+   * Report that the model reasoned before it answered.
+   *
+   * The reasoning itself is never shown; this records that it happened and how
+   * long it took, which is what a reader needs to understand the pause.
+   * @param durationMs - how long the model spent reasoning.
+   */
+  thought(durationMs: number): void
   /** Report a non-fatal notice (retry, output cap). */
   notice(text: string): void
   /** Report a failure of the turn itself. */
@@ -219,6 +227,9 @@ export function createTurnRenderer(options: TurnRendererOptions): TurnRenderer {
       if (result?.output !== undefined && result.output.trim() !== '') {
         writeBlock(sink, palette, 'OUT', result.output.split('\n'))
       }
+    },
+    thought(durationMs) {
+      sink.write(`\n${BODY_INDENT}${palette.paint('♦', 'ActionThink')} ${palette.paint(`Думал ${(durationMs / 1000).toFixed(1)}s`, 'Muted')}\n`)
     },
     text(delta) {
       if (!textStarted) {

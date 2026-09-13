@@ -21,6 +21,8 @@ export type LogKind =
   | 'user'
   | 'assistant'
   | 'stage'
+  /** A model's hidden reasoning: only that it happened and how long it took. */
+  | 'thought'
   | 'tool'
   /** A subagent entering or leaving the turn: who it is, what it runs on, its role. */
   | 'agent'
@@ -465,10 +467,13 @@ function block(
       const lineToken: TokenName = marked
         ? (wrapped.startsWith('+') ? 'DiffAdd' : wrapped.startsWith('-') ? 'DiffRemove' : 'Muted')
         : token
+      // Unchanged context recedes: the eye should land on the two rows that carry
+      // the change, not on the lines the tool happened to print around it.
+      const context = marked && !wrapped.startsWith('+') && !wrapped.startsWith('-')
       out.push({
         spans: [
           { text: printed === 0 && label !== undefined ? `${BLOCK_INDENT}${label} ` : BLOCK_INDENT, token: 'Subtle' },
-          { text: wrapped, token: lineToken },
+          { text: wrapped, token: lineToken, ...(context ? { dim: true } : {}) },
         ],
       })
       printed += 1
@@ -648,6 +653,18 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
       }
       if (live) suffix.push({ text: '  [stop]', token: 'Subtle', dim: true })
       return compose(prefix, entry.text, 'Muted', width, { suffix })
+    }
+    case 'thought': {
+      // The reasoning itself stays hidden: what the reader needs is that the model
+      // spent time thinking before it answered, and how much.
+      return [fitLine({
+        spans: [
+          { text: INDENT, token: 'Muted' },
+          { text: '♦', token: 'ActionThink' },
+          { text: ' Думал', token: 'Muted' },
+          { text: ` ${entry.durationMs === undefined ? '…' : elapsedLabel(entry.durationMs)}`, token: 'Muted', dim: true },
+        ],
+      }, width)]
     }
     case 'tool': {
       const action = actionMark(entry, options)
@@ -1133,7 +1150,8 @@ export function renderTranscript(
         lastLine = marker
       }
     }
-    const separated = entry.kind === 'user' || entry.kind === 'assistant' || entry.kind === 'stage' || entry.kind === 'plan'
+    const separated = entry.kind === 'user' || entry.kind === 'assistant' || entry.kind === 'stage'
+      || entry.kind === 'plan' || entry.kind === 'thought'
     if (separated && lastLine !== undefined && plainText(lastLine).trim() !== '') push(SEPARATOR)
     const lines = renderEntryCached(entry, width, perEntry)
     // The row is recorded before the lines are pushed: a reader who moves to this

@@ -157,6 +157,10 @@ export function createLogRenderer(options: LogRendererOptions): TurnRenderer {
         detail: paths,
       })
     },
+    thought(durationMs) {
+      answerId = null
+      log.append({ kind: 'thought', text: '', durationMs, ...owner() })
+    },
     text(delta) {
       if (answerId === null) {
         answerId = log.append({ kind: 'assistant', text: delta })

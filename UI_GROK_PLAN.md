@@ -61,11 +61,11 @@
 
 | ID | Статус | Задача | Артефакт | Проверка |
 |---|---|---|---|---|
-| 2.1 | todo | Вызовы инструментов как `♦ Run/Read/Edit/Grep/Ask` вместо сырых имён и JSON | `packages/client-node/src/arguments.ts`, `packages/tui/src/log.ts` | `tool-title.spec.ts` + кадр |
+| 2.1 | **done** | Вызовы инструментов как человеческое действие («Запускает …», «Читает …», «Ищет …», «Правит …», «Делегирует: …») вместо сырых имён и JSON | `packages/client-node/src/arguments.ts`, `packages/tui/src/log.ts` | `tool-title.spec.ts` + кадр |
 | 2.2 | **done** | Результат инструмента сворачивается под вызовом, `Enter` — просмотр целиком (мышь не перехватывается, поэтому раскрытие клавиатурное) | `packages/tui/src/log.ts`, `packages/tui/src/app.ts` | `surface.spec.ts`; живой кадр |
-| 2.3 | todo | Diff правки в стиле Grok: приглушённый контекст, один акцент на добавление и удаление | `packages/tui/src/log.ts` | тест вида diff |
-| 2.4 | todo | Размышления отдельными блоками с длительностью (`♦ Thought for 2.2s`) | `packages/client-node/src/turn.ts`, `packages/tui/src/log-renderer.ts` | тест блока и кадр |
-| 2.5 | todo | Субагенты как дочерние сессии: тип, задача, прогресс, сводка родителю | `packages/tui/src/log.ts`, `packages/client-node/src/agents.ts` | `agents.spec.ts` |
+| 2.3 | **done** | Diff в стиле Grok: приглушённый контекст, один акцент на добавление и удаление | `packages/tui/src/log.ts` | `surface.spec.ts` (токены `DiffAdd`/`DiffRemove`, контекст приглушён) |
+| 2.4 | **done** | Размышления отдельными блоками с длительностью: `♦ Думал 2.2s`, текст рассуждений не показывается | `packages/tui/src/render.ts`, `packages/tui/src/log-renderer.ts`, `packages/client-node/src/turn.ts` | `surface.spec.ts` |
+| 2.5 | **done** | Субагенты как дочерние сессии: бокс с именем, моделью, ролью и состоянием, сводка родителю при закрытии | `packages/tui/src/log.ts`, `packages/client-node/src/agents.ts` | `agents.spec.ts` |
 
 ---
 
