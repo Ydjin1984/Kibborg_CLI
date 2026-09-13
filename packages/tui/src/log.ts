@@ -10,7 +10,7 @@
  */
 
 import type { TokenName } from './tokens.ts'
-import { displayWidth, takeHeadWidth, wrapText } from './width.ts'
+import { displayWidth, clipPath, takeHeadWidth, wrapText } from './width.ts'
 import { elapsedLabel } from './anim.ts'
 import { formatTokens } from './status.ts'
 export { wrapText }
@@ -690,6 +690,13 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
           .filter((part): part is string => part !== undefined)
         suffix.push({ text: `   ▸ ${hidden.join(' · ')}`, token: 'Accent' })
       }
+      // The title is shortened to the columns that are actually left, not to a fixed
+      // budget: a wide terminal shows the whole command, a narrow one keeps the file
+      // name it ends with, and the suffix stays visible either way.
+      const fixed = TOOL_INDENT.length + displayWidth(action.glyph) + 2
+      const suffixWidth = suffix.reduce((total, span) => total + displayWidth(span.text), 0)
+      const title = clipPath(entry.title ?? entry.text, Math.max(8, width - fixed - suffixWidth))
+      prefix[3] = { text: title, token: 'Text' }
       const lines = compose(prefix, undefined, 'Text', width, { suffix })
       if (hasDetail && entry.expanded !== true) {
         return lines.map(line => fitLine({ ...line, entryId: entry.id, collapsed: true }, width))

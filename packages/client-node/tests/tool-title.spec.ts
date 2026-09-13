@@ -25,7 +25,38 @@ describe('toolTitle', () => {
   it('shortens a long argument so the row keeps its shape', () => {
     const long = 'x'.repeat(200)
     const title = toolTitle('bash', JSON.stringify({ command: long }))
-    expect(title.length).toBeLessThan(90)
+    // The bound is the title budget; the surface shortens it again to the columns it
+    // has, so a wide terminal can show more of the same command.
+    expect(title.length).toBeLessThanOrEqual('Запускает '.length + 160)
     expect(title.endsWith('…')).toBe(true)
+  })
+
+  it('keeps the file name when a long path has to be cut', () => {
+    // Long enough that the surface has to cut it, which is where the file name used
+    // to disappear.
+    const path = `C:/Users/lex66/AppData/Roaming/tabby/plugins/node_modules/${'tabby-ai-agent/'.repeat(8)}dist/index.js`
+    const read = toolTitle('read', JSON.stringify({ file_path: path }))
+    expect(read).toContain('…')
+    expect(read.endsWith('index.js')).toBe(true)
+    expect(read.startsWith('Читает C:/Users/lex66/')).toBe(true)
+
+    // A path that fits is left alone: the surface shortens to the columns it has.
+    const config = toolTitle('read', JSON.stringify({ file_path: 'C:/Users/lex66/AppData/Roaming/tabby/config.yaml' }))
+    expect(config).toBe('Читает C:/Users/lex66/AppData/Roaming/tabby/config.yaml')
+
+    // A quotation mark and a trailing separator belong to the syntax, not the name.
+    const quoted = toolTitle('pwsh', JSON.stringify({ command: `Get-ChildItem -Path "C:\\Users\\lex66\\AppData\\Roaming\\tabby\\plugins\\node_modules\\${'deep\\'.repeat(20)}package.json"` }))
+    expect(quoted.endsWith('package.json')).toBe(true)
+    expect(quoted).toContain('…')
+  })
+
+  it('cuts a long command from its end, where the arguments are', () => {
+    const command = `cd D:\\Deepseec_DaVinchi; Get-ChildItem -Recurse -File -Include ${'*.ts,*.js,*.json,'.repeat(12)} -Depth 6`
+    const title = toolTitle('pwsh', JSON.stringify({ command }))
+    // A command has no file name at the end and its start is what names it, so the
+    // tail is dropped instead.
+    expect(title.startsWith('Запускает cd D:\\Deepseec_DaVinchi; Get-ChildItem')).toBe(true)
+    expect(title.endsWith('…')).toBe(true)
+    expect(title.length).toBeLessThan(180)
   })
 })

@@ -11,7 +11,7 @@
 export type { Palette, TokenName, TokenStyle } from './tokens.ts'
 export { agentToken, fallbackPalette, paletteFor, paletteForTheme, plainPalette, terminalPalette, trueColorPalette } from './tokens.ts'
 
-export { displayWidth, padLeft, padRight, takeHeadWidth, takeTailWidth } from './width.ts'
+export { displayWidth, clipPath, fileTailOf, padLeft, padRight, takeHeadWidth, takeTailWidth } from './width.ts'
 
 export type { FooterInput, StatusInput } from './status.ts'
 export { composerFacts, contextBar, formatTokens, statusLine, thinkingToken, turnFooter } from './status.ts'

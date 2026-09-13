@@ -133,6 +133,50 @@ export function takeTailWidth(text: string, width: number): string {
 }
 
 /**
+ * The file name an argument or a command ends with, when it ends with one.
+ *
+ * A long path cut to its head loses the only part that says what is being read or
+ * written, so callers keep this tail and drop the context in front of it. Trailing
+ * quotes, spaces, and punctuation belong to the caller's syntax, not to the name.
+ * @param text - the value to inspect.
+ * @returns the last path segment when it looks like a file name with an extension.
+ */
+export function fileTailOf(text: string): string | undefined {
+  const trimmed = text.replace(/[\s"';,)\]]+$/u, '')
+  const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'))
+  const tail = cut === -1 ? trimmed : trimmed.slice(cut + 1)
+  if (tail === '' || displayWidth(tail) > 40) return undefined
+  const dot = tail.lastIndexOf('.')
+  if (dot <= 0 || dot === tail.length - 1) return undefined
+  return tail
+}
+
+/**
+ * Shorten text to a column budget, keeping the part that identifies it.
+ *
+ * Text that ends in a file name keeps that name and drops context from the middle;
+ * anything else keeps its head, because a command or a sentence is recognised by how
+ * it starts. Both forms end in an ellipsis, so a cut is never mistaken for the value.
+ * @param text - the text to shorten.
+ * @param width - available columns.
+ * @returns the text unchanged when it fits, otherwise a shortened form with an ellipsis.
+ */
+export function clipPath(text: string, width: number): string {
+  if (width <= 1) return ''
+  if (displayWidth(text) <= width) return text
+  const tail = fileTailOf(text)
+  // Room for the ellipsis plus something in front of it: a bare file name with no
+  // context would hide which directory the work happens in.
+  if (tail !== undefined && displayWidth(tail) + 12 <= width) {
+    const head = takeHeadWidth(text, width - displayWidth(tail) - 1)
+    const at = head.lastIndexOf(tail)
+    const kept = (at >= 0 ? head.slice(0, at) : head).replace(/[\s\\/]+$/u, '')
+    if (kept !== '') return `${kept}…${tail}`
+  }
+  return `${takeHeadWidth(text, width - 1)}…`
+}
+
+/**
  * Wrap text to a column budget.
  *
  * Words are moved whole to the next line; a word wider than the budget is cut,

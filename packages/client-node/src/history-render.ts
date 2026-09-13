@@ -10,9 +10,13 @@
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { turnFooter, type Palette } from '@kibborg/tui'
+import { shortArgument } from './arguments.ts'
 
 /** Two-column body indent shared with the live turn renderer. */
 const BODY_INDENT = '  '
+
+/** Character budget of a tool argument on a replayed row. */
+const ARGUMENT_LIMIT = 80
 
 /** Argument keys shown on a tool row, in priority order. */
 const ARGUMENT_KEYS = ['path', 'file', 'file_path', 'pattern', 'command', 'query'] as const
@@ -187,7 +191,7 @@ function writeBody(sink: HistoryRenderOptions['sink'], palette: Palette, text: s
 /**
  * Compact a tool-call argument: the first path-like field, else a short JSON prefix.
  * @param raw - the model's raw argument JSON string.
- * @returns at most 80 characters, or `undefined` when empty.
+ * @returns at most {@link ARGUMENT_LIMIT} characters, or `undefined` when empty.
  */
 function summarizeArguments(raw: string): string | undefined {
   const trimmed = raw.trim()
@@ -198,12 +202,12 @@ function summarizeArguments(raw: string): string | undefined {
       const record = parsed as Record<string, unknown>
       for (const key of ARGUMENT_KEYS) {
         const value = record[key]
-        if (typeof value === 'string' && value !== '') return value.slice(0, 80)
+        if (typeof value === 'string' && value !== '') return shortArgument(value, ARGUMENT_LIMIT)
       }
     }
   } catch {
     // Arguments are a model-produced string; invalid JSON is shown truncated.
-    return trimmed.slice(0, 80)
+    return shortArgument(trimmed, ARGUMENT_LIMIT)
   }
-  return trimmed.slice(0, 80)
+  return shortArgument(trimmed, ARGUMENT_LIMIT)
 }
