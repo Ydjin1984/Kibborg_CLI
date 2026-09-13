@@ -518,7 +518,7 @@ async function answerOnce(
     signal: controller.signal,
     questions: headless,
     ...(files === undefined ? {} : { files }),
-    ...(surface.timestamps ? { timestamps: true } : {}),
+    ...(surface.timestamps ? {} : { timestamps: false }),
     ...(writer === undefined ? {} : { onEvent: writer.onEvent }),
     ...(intent?.maxTurns === undefined ? {} : { maxTurns: intent.maxTurns }),
   })

@@ -115,6 +115,14 @@ export interface LogEntry {
   readonly title?: string
   /** Tool name, for the detail layer of `kind: 'tool'`. */
   readonly toolName?: string
+  /**
+   * When the entry was written, in milliseconds since the epoch.
+   *
+   * A message carries the time it appeared, the way the reference CLIs stamp
+   * their transcripts, so a long session reads as a timeline rather than one
+   * undivided stream.
+   */
+  readonly at?: number
   /** Hotkey legend of the plan widget, for `kind: 'plan'`. */
   readonly keys?: string
   /**
@@ -193,14 +201,15 @@ export interface StyledLine {
 export interface RenderOptions {
   /** Animation tick, so a running stage or tool shows a moving glyph. */
   readonly tick?: number
-  /** Whether entry headings carry a relative timestamp. */
+  /**
+   * Whether a message carries the time it was written.
+   *
+   * On by default, the way the reference CLIs stamp their transcripts; a caller
+   * that wants a bare log turns it off.
+   */
   readonly timestamps?: boolean
-  /** Current time for relative timestamps. */
-  readonly now?: number
   /** Glyph for a running tool or stage; the spinner frame when omitted. */
   readonly runningGlyph?: string
-  /** Relative age of an entry heading, in the format `14m`. */
-  readonly ageOf?: (entry: LogEntry, now: number) => string | undefined
   /**
    * Whether answers may carry OSC 8 hyperlinks.
    *
@@ -238,6 +247,18 @@ function lastAnswer(entries: readonly LogEntry[]): number | undefined {
 
 /** Indentation of transcript body text. */
 const INDENT = '  '
+
+/** The user's own line: the marker that opens a task, then its text. */
+const USER_PREFIX = `${INDENT}> `
+
+/** Continuation of the user's task, aligned under its text. */
+const CONTINUATION = `${INDENT}  `
+
+/** Columns the message time keeps for itself at the right edge. */
+const STAMP_WIDTH = 5
+
+/** The shortest body a stamped row may keep before the time is dropped. */
+const STAMP_MIN_BODY = 12
 
 /** Indentation of a tool row. */
 const TOOL_INDENT = '    '
@@ -288,7 +309,9 @@ export function createLog(): LogModel {
       const id = nextId
       nextId += 1
       positions.set(id, entries.length)
-      entries.push({ ...entry, id, revision: 1 })
+      // The moment is fixed when the message enters the transcript: a repaint must
+      // not move it, and a relayout must not change what time the user saw.
+      entries.push({ ...entry, at: entry.at ?? Date.now(), id, revision: 1 })
       version += 1
       return id
     },
@@ -327,6 +350,48 @@ export function lineWidth(line: StyledLine): number {
 /** The unstyled text of a line, for tests and sticky headers. */
 export function plainText(line: StyledLine): string {
   return line.spans.map(span => span.text).join('')
+}
+
+/**
+ * The clock time of a message, as the transcript prints it.
+ * @param at - milliseconds since the epoch, or `undefined` when unknown.
+ * @returns `HH:MM`, or `undefined` when there is no time to show.
+ */
+export function clockStamp(at: number | undefined): string | undefined {
+  if (at === undefined || !Number.isFinite(at)) return undefined
+  const date = new Date(at)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+/**
+ * Put the time of a message at the right edge of its first readable row.
+ *
+ * A row that opens a frame or a table keeps its shape: the time moves to the next
+ * row that can spare the columns. When no row can, the time is dropped rather
+ * than pushed past the frame.
+ * @param lines - the message's rows.
+ * @param at - milliseconds since the epoch, or `undefined` when unknown.
+ * @param width - the frame width available.
+ * @returns the rows, with the time in one of them.
+ */
+function stamped(lines: readonly StyledLine[], at: number | undefined, width: number): StyledLine[] {
+  const stamp = clockStamp(at)
+  const room = width - STAMP_WIDTH - 2
+  if (stamp === undefined || room < STAMP_MIN_BODY) return [...lines]
+  const index = lines.findIndex(line => {
+    const text = plainText(line).trimEnd()
+    return displayWidth(text) > 0 && !/^[┌│╰├]/u.test(text.trimStart())
+  })
+  if (index === -1) return [...lines]
+  const result = [...lines]
+  const line = result[index] as StyledLine
+  const head = fitLine(line, room)
+  const gap = Math.max(1, room - lineWidth(head))
+  result[index] = {
+    ...head,
+    spans: [...head.spans, { text: ' '.repeat(gap), token: 'Muted' }, { text: stamp, token: 'Subtle', dim: true }],
+  }
+  return result
 }
 
 /** Cut spans down to a column budget. */
@@ -509,17 +574,22 @@ function condense(lines: readonly StyledLine[], entry: LogEntry, width: number):
 }
 
 /** Render one entry into lines. */
-function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now: number): StyledLine[] {
+function renderEntry(entry: LogEntry, width: number, options: RenderOptions): StyledLine[] {
   switch (entry.kind) {
     case 'user': {
-      const stamp = options.timestamps === true ? options.ageOf?.(entry, now) : undefined
-      const heading: Span[] = [{ text: `${INDENT}You`, token: 'Muted' }]
-      if (stamp !== undefined) heading.push({ text: `   ${stamp}`, token: 'Subtle', dim: true })
-      const lines: StyledLine[] = [fitLine({ spans: heading, anchor: 'You', heading: true }, width)]
-      for (const line of wrapText(entry.text, Math.max(1, width - INDENT.length))) {
-        lines.push(fitLine({ spans: [{ text: `${INDENT}${line}`, token: 'Text' }], anchor: 'You' }, width))
-      }
-      return lines
+      // The prompt is the user's own line: a marker, the text, and the time at the
+      // right edge. No label and no frame — the marker says who wrote it, so the
+      // row spends its width on the task instead of on decoration.
+      const wrapped = wrapText(entry.text, Math.max(1, width - USER_PREFIX.length))
+      // The first row is both the task itself and the entry's heading: the sticky
+      // header of a scrolled view then shows which task the reader is inside,
+      // instead of a separate label that repeats what the marker already says.
+      const lines = (wrapped.length === 0 ? [''] : wrapped).map((text, index) => fitLine({
+        spans: [{ text: `${index === 0 ? USER_PREFIX : CONTINUATION}${text}`, token: 'Text' }],
+        anchor: 'You',
+        ...(index === 0 ? { heading: true } : {}),
+      }, width))
+      return options.timestamps === false ? lines : stamped(lines, entry.at, width)
     }
     case 'assistant': {
       // The answer is Markdown, so it is rendered rather than printed: headings,
@@ -535,7 +605,8 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions, now
       const styled = rendered.map(line => fitLine({
         spans: [{ text: INDENT, token: 'Muted' }, ...line.spans],
       }, width))
-      return options.lastAnswerId === entry.id ? styled : condense(styled, entry, width)
+      const marked = options.timestamps === false ? styled : stamped(styled, entry.at, width)
+      return options.lastAnswerId === entry.id ? marked : condense(marked, entry, width)
     }
     case 'stage': {
       const glyph = options.runningGlyph ?? '✳'
@@ -797,7 +868,7 @@ function trimEntryCache(): void {
 }
 
 /** Render one entry through the cache. */
-function renderEntryCached(entry: LogEntry, width: number, options: RenderOptions, now: number): readonly StyledLine[] {
+function renderEntryCached(entry: LogEntry, width: number, options: RenderOptions): readonly StyledLine[] {
   // Only a running entry animates, so only it has to re-render on every tick.
   const animates = entry.status === 'running' || entry.kind === 'stage'
   const tick = animates ? (options.tick ?? 0) : 0
@@ -811,13 +882,14 @@ function renderEntryCached(entry: LogEntry, width: number, options: RenderOption
   // indent to the left of them.
   const lead = depth > 1 ? BRANCH_INDENT.repeat(Math.min(depth - 1, MAX_BRANCH_DEPTH)) : ''
   const answerRole = entry.id === options.lastAnswerId ? 'last' : 'past'
-  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}`
+  const stamps = options.timestamps === false ? 'plain' : 'time'
+  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}|${stamps}`
   const cached = ENTRY_CACHE.get(entry.id)
   if (cached !== undefined && cached.key === key) return cached.lines
   // A row inside a delegation sits between the walls of its box; the walls take
   // their columns from the row's budget so nothing is drawn past the frame.
   const inside = Math.max(1, width - lead.length - (wall ? WALL_WIDTH : 0))
-  const inner = renderEntry(entry, inside, options, now)
+  const inner = renderEntry(entry, inside, options)
   const lines = lead === '' && !wall
     ? inner
     : inner.map(line => {
@@ -923,12 +995,11 @@ export function renderTranscript(
   width: number,
   options: RenderOptions = {},
 ): Transcript {
-  const now = options.now ?? Date.now()
   const tick = animates(entries) ? (options.tick ?? 0) : 0
   const hyperlinks = options.hyperlinks === true
-  // Relative stamps are a function of the clock, not of the model, so a transcript
-  // built for one `now` cannot answer for another: those renders are not cached.
-  const cacheable = options.timestamps !== true && options.ageOf === undefined
+  // A message's time is fixed when it enters the transcript, so a rendered
+  // transcript answers for any moment: the cache holds regardless of the clock.
+  const cacheable = true
   const cached = transcriptCache
   if (cacheable
     && cached !== undefined
@@ -1007,7 +1078,7 @@ export function renderTranscript(
     }
     const separated = entry.kind === 'user' || entry.kind === 'assistant' || entry.kind === 'stage' || entry.kind === 'plan'
     if (separated && lastLine !== undefined && plainText(lastLine).trim() !== '') push(SEPARATOR)
-    const lines = renderEntryCached(entry, width, perEntry, now)
+    const lines = renderEntryCached(entry, width, perEntry)
     push(lines)
     lastLine = lines[lines.length - 1] ?? lastLine
   }

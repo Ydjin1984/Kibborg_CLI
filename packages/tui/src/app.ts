@@ -7,9 +7,11 @@
  * against the previous one, so an idle surface writes nothing at all and a
  * keystroke repaints only the rows it changed.
  *
- * The layout follows `UI.md`: a three-row brand header, the scrolling transcript,
- * the palette or request box over the composer, the dashed composer with its
- * `>` prompt, and the status line pinned to the last row.
+ * The layout follows `UI.md` and the reference CLIs: a two-row location header,
+ * the scrolling transcript, the palette or request box over the composer, and the
+ * framed composer whose bottom border carries the session facts. Frames are
+ * composed into a cell buffer and diffed against the previous one, so an idle
+ * surface writes nothing at all and a keystroke repaints only the rows it changed.
  * @module @kibborg/tui/app
  */
 
@@ -769,7 +771,9 @@ interface ComposerPaint {
  */
 function drawComposer(buf: CellBuffer, rect: Rect, input: ComposerPaint): void {
   if (rect.h <= 0 || rect.w <= 0) return
-  const inner = Math.max(8, rect.w - 4)
+  // The box is inset by two columns on each side and spans what is left: the same
+  // inner width `composerFrame` uses, so both surfaces agree at any terminal size.
+  const inner = Math.max(4, rect.w - 4)
   const left = rect.x + 2
   const right = left + inner - 1
   const last = rect.y + rect.h - 1
@@ -823,16 +827,17 @@ function composerRowLimit(rect: Rect): number {
 /** Where the terminal cursor belongs inside the composer, addressed one-based. */
 function composerCursor(rect: Rect, draft: string): { readonly row: number; readonly col: number } | null {
   if (rect.h <= 0 || rect.w <= 0) return null
-  const inner = Math.max(8, rect.w - 4)
+  const inner = Math.max(4, rect.w - 4)
   const lines = draft.split('\n')
   const total = lines.length
   const rows = Math.max(1, Math.min(composerRowLimit(rect), total))
   const hidden = Math.max(0, total - rows)
-  // The caret sits at the end of the newest line, which is the last input row the
-  // composer shows, and its room is the one `drawComposer` leaves after the prompt
-  // and the scroll marker. Both addresses are one-based, like the terminal's own.
-  const marker = total > rows ? `▲ +${String(hidden)} ` : ''
+  // The scroll marker shares a row only when that row is the single visible one;
+  // otherwise it stands above the caret and takes nothing from its columns.
+  const marker = hidden > 0 && rows === 1 ? `▲ +${String(hidden)} ` : ''
   const view = composerView(lines[total - 1] ?? '', Math.max(1, inner - 5 - displayWidth(marker)))
+  // The column matches how `drawComposer` lays the prompt, the marker, and the
+  // text; both addresses are one-based, like the terminal's own.
   return { row: rect.y + rows + 1, col: rect.x + 7 + displayWidth(marker) + displayWidth(view.text) }
 }
 

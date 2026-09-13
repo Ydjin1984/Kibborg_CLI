@@ -1,10 +1,10 @@
 /**
- * Brand header of the fullscreen surface.
+ * Location row of the terminal surface.
  *
- * Two rows: the brand line with the working context and the active model, and a
- * thin rule separating the header from the transcript. Everything the session is
- * doing lives in the status row under the transcript, where it is read next to
- * the work it describes instead of competing with the brand.
+ * Two rows: the place the session works in — the mark, the branch, the working
+ * directory, the measured share of the context window, and the open panel — and a
+ * thin rule separating the header from the transcript. The model and the mode live
+ * in the composer's bottom border, where the user reads them while typing.
  * @module @kibborg/tui/header
  */
 

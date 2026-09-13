@@ -23,7 +23,12 @@ export interface LayoutRequest {
   readonly overlayHeight?: number
   /** Rows reserved for the brand header; defaults to two. */
   readonly headerHeight?: number
-  /** Whether the status line participates; defaults to true. */
+  /**
+   * Whether a status row is reserved below the composer.
+   *
+   * Off by default: the framed composer carries the session facts in its bottom
+   * border. A caller that still prints a status row of its own asks for it.
+   */
   readonly showStatus?: boolean
 }
 
@@ -85,7 +90,7 @@ export function computeLayout(cols: number, rows: number, options: LayoutRequest
 
   let headerH = clamp(options.headerHeight ?? DEFAULT_HEADER_HEIGHT, 0, safeRows)
   let composerH = clamp(options.composerHeight, 1, safeRows)
-  let statusH = options.showStatus !== false && safeRows >= STATUS_MIN_ROWS ? 1 : 0
+  let statusH = options.showStatus === true && safeRows >= STATUS_MIN_ROWS ? 1 : 0
   let overlayH = clamp(options.overlayHeight ?? 0, 0, safeRows)
 
   let logH = safeRows - headerH - composerH - statusH - overlayH

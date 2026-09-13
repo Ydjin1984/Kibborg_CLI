@@ -24,8 +24,8 @@ describe('renderSessionHistory', () => {
     ], { palette: plainPalette, sink: out, cols: 100 })
 
     const text = out.text()
-    expect(text).toContain('  You')
-    expect(text).toContain('  привет')
+    // The task keeps its own marker and the time the log recorded for it.
+    expect(text).toMatch(/  > привет {2}\d\d:\d\d/u)
     expect(text).toContain('read')
     expect(text).toContain('README.md')
     expect(text).toContain('  готово')

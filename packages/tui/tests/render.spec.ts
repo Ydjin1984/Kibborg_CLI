@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   COMPOSER_MARGIN,
+  COMPOSER_MAX_ROWS,
   COMPOSER_PREFIX,
   composerBorderBottom,
   composerCursorColumn,
@@ -133,6 +134,22 @@ describe('composer', () => {
     )
     expect(row).toContain('> привет')
   })
+
+  it('keeps the caret on the newest row when the draft scrolls', () => {
+    const inner = 40
+    const draft = Array.from({ length: 12 }, (_, index) => `строка ${String(index + 1)}`).join('\n')
+    const frame = composerFrame({ draft, innerWidth: inner, showHint: true }, plainPalette)
+    const row = frame.lines[frame.cursorRow - 1] ?? ''
+    // The scroll marker sits on the first visible row, so it takes nothing from the
+    // columns of the last one and the caret stays right after the text.
+    expect(frame.cursorRow).toBe(1 + COMPOSER_MAX_ROWS)
+    expect(row).toContain('строка 12')
+    expect(displayWidth(row.slice(0, frame.cursorColumn - 1))).toBe(
+      COMPOSER_MARGIN + 4 + displayWidth('строка 12'),
+    )
+    // The marker is visible on the row above and says how much is hidden.
+    expect(frame.lines[1]).toContain('▲ +4')
+  })
 })
 
 describe('turn renderer', () => {
@@ -147,7 +164,7 @@ describe('turn renderer', () => {
     renderer.finish({ tokens: 1234, seconds: 1.5 })
     renderer.status({ model: 'm', contextPercent: 10, mode: 'Agent' })
     const text = sink.text()
-    expect(text).toContain('  You\n  привет')
+    expect(text).toMatch(/  > привет {2}\d\d:\d\d:\d\d/u)
     expect(text).toContain('⚙  read   README.md')
     expect(text).toContain('  первая строка')
     expect(text).toContain('✓  1.2k tok · 1.5s · 1 tools')

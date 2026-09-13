@@ -44,6 +44,14 @@ export interface ZoneState {
  */
 export function zoneLines(state: ZoneState, palette: Palette): readonly string[] {
   const facts = composerFacts({ ...state.status, cols: state.cols })
+  // The zone has no header, so the facts a header would carry — the measured share
+  // of the context window and the branch in use — join the border's counters.
+  const extras: string[] = []
+  if (state.status.contextPercent > 0) extras.push(`ctx ${String(Math.round(state.status.contextPercent))}%`)
+  if (state.cols >= 88 && state.status.branch !== undefined && state.status.branch !== '') {
+    extras.push(`${state.status.branch}${state.status.dirty === true ? '*' : ''}`)
+  }
+  const counters = [facts.counters, ...extras].filter(part => part !== '').join(' · ')
   const composer = composerLines(
     {
       draft: state.draft,
@@ -51,7 +59,7 @@ export function zoneLines(state: ZoneState, palette: Palette): readonly string[]
       showHint: state.showHint,
       ...(state.status.running === true ? { hint: COMPOSER_RUNNING_HINT } : {}),
       status: facts.status,
-      counters: facts.counters,
+      counters,
     } satisfies ComposerInput,
     palette,
   )

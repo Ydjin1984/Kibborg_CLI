@@ -184,7 +184,7 @@ export interface LineSegment {
 export function lineSegments(line: string): readonly LineSegment[] {
   const trimmed = line.trimStart()
   const indent = line.slice(0, line.length - trimmed.length)
-  if (trimmed.startsWith('You')) return [{ text: `${indent}You`, token: 'Muted' }, { text: trimmed.slice(3), token: 'Text' }]
+  if (trimmed.startsWith('> ')) return [{ text: `${indent}>`, token: 'Accent' }, { text: trimmed.slice(1), token: 'Text' }]
   if (trimmed.startsWith('⚙')) {
     const rest = trimmed.slice(1)
     const gap = rest.search(/ {2,}/u)
@@ -244,6 +244,15 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
   let running = false
   let runningSince = 0
   let tick = 0
+  /** Agents on the run and tool calls it has made, as the turn reports them. */
+  let agents = 0
+  let tasks = 0
+  /** Tokens the last finished turn moved; absent until one finishes. */
+  let turnTokens: number | undefined
+  /** Length of the last finished turn, in seconds. */
+  let lastSeconds: number | undefined
+  /** Whether a turn has measured the context window yet. */
+  let measured = false
   /** When the last Ctrl+C arrived, so two presses inside the window leave. */
   let lastInterrupt = 0
   /** Conversation lines scrolled back from the tail; 0 shows the newest. */
@@ -355,13 +364,20 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     // drawing so the frame never shows an empty window by accident.
     scroll = Math.min(scroll, Math.max(0, feedLength(feed) - 1))
     const innerWidth = Math.max(4, cols - 4)
+    // The same facts the inline surface puts in its composer border: the run's
+    // scale while it works, and what the finished turn measured once it is over.
     const facts = composerFacts({
       model: session.state.model,
       contextPercent: session.state.contextPercent,
       mode: session.state.mode,
       cols,
       running,
-      ...(running ? { turnSeconds: (Date.now() - runningSince) / 1000 } : {}),
+      agents,
+      tasks,
+      ...(turnTokens === undefined ? {} : { tokens: turnTokens }),
+      ...(running
+        ? { turnSeconds: (Date.now() - runningSince) / 1000 }
+        : lastSeconds === undefined ? {} : { turnSeconds: lastSeconds }),
     })
     const composerFrameView = composerFrame({
       draft,
@@ -425,7 +441,9 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       tick,
       elapsedMs: running ? Date.now() - runningSince : 0,
       density: densityFor(cols),
-      contextPercent: session.state.contextPercent,
+      // Nothing has measured the context window before the first finished turn, so
+      // the row stays silent rather than claiming nought per cent is in use.
+      ...(measured ? { contextPercent: session.state.contextPercent } : {}),
       ...(panelTab === undefined ? {} : { panel: panelTab }),
       ...(session.state.branch === undefined ? {} : { branch: session.state.branch }),
       ...(session.state.dirty === undefined ? {} : { dirty: session.state.dirty }),
@@ -501,7 +519,7 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       render()
       return
     }
-    feed.write(`\n  You  ${task}\n`)
+    feed.write(`\n  > ${task}  ${new Date().toTimeString().slice(0, 5)}\n`)
     running = true
     runningSince = Date.now()
     tick = 0
@@ -520,7 +538,13 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
       cols: screen.cols,
       signal: controller.signal,
       ...session.state.model === undefined || session.state.model === '' ? {} : { model: session.state.model },
-      ...(session.settings.timestamps ? { timestamps: true } : {}),
+      ...(session.settings.timestamps ? {} : { timestamps: false }),
+      // The composer border reports the run's scale, so a long delegation shows its
+      // progress instead of leaving the user with a spinner and no facts.
+      onProgress: (progress: { readonly agents: number; readonly tasks: number }) => {
+        agents = progress.agents
+        tasks = progress.tasks
+      },
       // A question or an approval has to reach this surface: without the callbacks
       // the host applies the headless policy, and the model can never offer a choice.
       onApproval: askApproval,
@@ -530,6 +554,16 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     animation = undefined
     controller = undefined
     running = false
+    // The hint belonged to the turn: leaving it up would keep telling the user how
+    // to interrupt a run that has already finished.
+    hint = ''
+    // The host reports the turn's own cost, and the context measurement is only
+    // meaningful once a turn has produced one.
+    agents = 0
+    tasks = 0
+    turnTokens = outcome.tokens
+    lastSeconds = outcome.seconds
+    measured = true
     session.state.contextPercent = outcome.contextPercent
     feed.write(`\n`)
     render()

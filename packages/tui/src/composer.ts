@@ -177,8 +177,12 @@ export function composerFrame(input: ComposerInput, palette: Palette): ComposerF
   }
   const last = shown[shown.length - 1] ?? ''
   const lastPrefix = shown.length === 1 && hidden === 0 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
-  const caretColumn = COMPOSER_MARGIN + 2 + displayWidth(lastPrefix)
-    + displayWidth(composerView(last, Math.max(1, content - 1 - displayWidth(lastPrefix))).text)
+  // The scroll marker shares a row only when that row is the single visible one;
+  // otherwise it stands above the caret and takes nothing from its columns.
+  const caretMarker = hidden > 0 && shown.length === 1 ? `▲ +${String(hidden)} ` : ''
+  const caretRoom = Math.max(1, content - 1 - displayWidth(lastPrefix) - displayWidth(caretMarker))
+  const caretColumn = COMPOSER_MARGIN + 2 + displayWidth(lastPrefix) + displayWidth(caretMarker)
+    + displayWidth(composerView(last, caretRoom).text)
   lines.push(`${inset}${palette.paint(composerBorderBottom(inner, input.status ?? '', input.counters ?? ''), 'Subtle')}`)
   return { lines, cursorRow: 1 + shown.length, cursorColumn: caretColumn + 1 }
 }
@@ -199,13 +203,16 @@ export function composerLines(input: ComposerInput, palette: Palette): readonly 
  * @param innerWidth - the composer's inner width (`cols - 4`).
  * @returns the zero-based column where the caret renders.
  */
-export function composerCursorColumn(draft: string, innerWidth: number): number {
+export function composerCursorColumn(draft: string, innerWidth: number, maxRows = COMPOSER_MAX_ROWS): number {
   const rows = draft.split('\n')
   const last = rows[rows.length - 1] ?? ''
-  const prefix = rows.length === 1 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
+  const shown = Math.min(rows.length, Math.max(1, maxRows))
+  const hidden = rows.length - shown
+  const prefix = shown === 1 && hidden === 0 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
+  const marker = hidden > 0 && shown === 1 ? `▲ +${String(hidden)} ` : ''
   const content = Math.max(1, Math.max(6, innerWidth) - 2)
-  const available = Math.max(1, content - 1 - displayWidth(prefix))
-  return COMPOSER_MARGIN + 2 + displayWidth(prefix) + displayWidth(composerView(last, available).text)
+  const available = Math.max(1, content - 1 - displayWidth(prefix) - displayWidth(marker))
+  return COMPOSER_MARGIN + 2 + displayWidth(prefix) + displayWidth(marker) + displayWidth(composerView(last, available).text)
 }
 
 /**

@@ -287,13 +287,23 @@ describe('transcript rendering', () => {
     expect(diffTokens.length).toBeGreaterThan(0)
   })
 
-  it('keeps the heading of a user entry for the sticky header', () => {
+  it('marks the task row of a user entry as the heading of its branch', () => {
     const log = createLog()
     log.append({ kind: 'user', text: 'привет' })
     const lines = renderEntries(log.entries, 60)
+    // The task row carries the marker and the heading at once: the sticky header of
+    // a scrolled view shows the task, not a label repeating who wrote it.
     expect(lines[0]?.heading).toBe(true)
     expect(lines[0]?.anchor).toBe('You')
-    expect(lines[1]?.anchor).toBe('You')
+    expect(plainText(lines[0] as StyledLine)).toContain('  > привет')
+    // The time of the task sits at the right edge of that same row.
+    expect(plainText(lines[0] as StyledLine)).toMatch(/\d\d:\d\d$/u)
+    // A task that wraps keeps every row under the same anchor.
+    const long = createLog()
+    long.append({ kind: 'user', text: Array.from({ length: 12 }, () => 'слово').join(' ') })
+    const wrapped = renderEntries(long.entries, 30)
+    expect(wrapped.length).toBeGreaterThan(1)
+    for (const line of wrapped) expect(line.anchor).toBe('You')
   })
 
   it('wraps long words without a space', () => {

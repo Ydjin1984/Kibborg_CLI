@@ -67,8 +67,10 @@ export function renderHistoryEntry(event: SessionEvent, options: HistoryRenderOp
   if (event.type === 'user/message') {
     const text = visibleText(event.data.content)
     if (text === '') return
-    sink.write(`\n${BODY_INDENT}${palette.paint('You', 'Muted')}\n`)
-    writeBody(sink, palette, text)
+    // The task is the user's own line, with the time the log recorded for it.
+    const clock = new Date(event.time)
+    const stamp = `${String(clock.getHours()).padStart(2, '0')}:${String(clock.getMinutes()).padStart(2, '0')}`
+    sink.write(`\n${BODY_INDENT}${palette.paint('>', 'Muted')} ${palette.paint(text, 'Text')}  ${palette.paint(stamp, 'Subtle')}\n`)
     return
   }
 

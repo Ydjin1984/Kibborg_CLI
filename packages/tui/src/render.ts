@@ -32,7 +32,7 @@ export interface TurnRendererOptions {
   readonly sink: RenderSink
   /** Terminal width in columns; the status line adapts to it. */
   readonly cols: number
-  /** Print a wall-clock prefix beside the speaker label (`UI.md` §4.9 rich density). */
+  /** Print the time a message was written beside it; on unless set to `false`. */
   readonly timestamps?: boolean
 }
 
@@ -140,8 +140,8 @@ function changeCounts(palette: Palette, added: number | undefined, removed: numb
  */
 export function createTurnRenderer(options: TurnRendererOptions): TurnRenderer {
   const { palette, sink, cols } = options
-  /** A `HH:MM:SS` stamp for the speaker line, empty when timestamps are off. */
-  const stamp = (): string => options.timestamps === true
+  /** A `HH:MM:SS` stamp for the message line, empty when timestamps are off. */
+  const stamp = (): string => options.timestamps !== false
     ? `  ${palette.paint(new Date().toTimeString().slice(0, 8), 'Muted')}`
     : ''
   let tools = 0
@@ -173,8 +173,9 @@ export function createTurnRenderer(options: TurnRendererOptions): TurnRenderer {
 
   return {
     user(text) {
-      sink.write(`\n${BODY_INDENT}${palette.paint('You', 'Muted')}${stamp()}\n`)
-      sink.write(`${BODY_INDENT}${palette.paint(text, 'Text')}\n`)
+      // The task is the user's own line: a marker, the text, and the time it was
+      // written. No label — the marker says who wrote it.
+      sink.write(`\n${BODY_INDENT}${palette.paint('>', 'Muted')} ${palette.paint(text, 'Text')}${stamp()}\n`)
     },
     agent(badge, detail) {
       // In the scrollback every agent line stands alone, because there is no frame

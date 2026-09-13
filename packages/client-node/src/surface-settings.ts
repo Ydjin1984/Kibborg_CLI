@@ -18,7 +18,7 @@ export const SURFACE_NAMESPACE = 'kibborg-cli'
 export interface SurfaceSettings {
   /** Color preset: `ice` keeps the design palette, `mono` prints without color. */
   readonly theme: 'ice' | 'mono'
-  /** Print a wall-clock prefix on conversation lines. */
+  /** Print the time a message was written beside it. */
   readonly timestamps: boolean
   /** Enter breaks the line and Ctrl+J submits, instead of the reverse. */
   readonly multiline: boolean
@@ -29,7 +29,8 @@ export interface SurfaceSettings {
 /** Defaults matching the composition's own section base. */
 export const SURFACE_DEFAULTS: SurfaceSettings = {
   theme: 'ice',
-  timestamps: false,
+  // The reference CLIs stamp every message, so a session reads as a timeline.
+  timestamps: true,
   multiline: false,
   screen: 'inline',
 }

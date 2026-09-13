@@ -33,7 +33,6 @@ import {
   permissionDialog,
   plainPalette,
   questionDialog,
-  statusLine,
   zoneCursor,
   zoneLines,
   type App,
@@ -847,7 +846,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       onApproval: askApproval,
       onQuestion: askQuestion,
       ...(route === undefined || route === '' ? {} : { model: route }),
-      ...(options.settings.timestamps ? { timestamps: true } : {}),
+      ...(options.settings.timestamps ? {} : { timestamps: false }),
       // The status line says how much work is in flight, so a long delegation shows
       // its progress instead of only a spinner.
       ...(app === undefined ? {} : {
@@ -890,15 +889,8 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       drawZone()
       return
     }
-    write(`${statusLine({
-      model: options.state.model,
-      contextPercent,
-      turnSeconds: outcome.seconds,
-      mode: options.state.mode,
-      cols,
-      ...(options.state.branch === undefined ? {} : { branch: options.state.branch }),
-      ...(options.state.dirty === undefined ? {} : { dirty: options.state.dirty }),
-    }, palette)}\n`)
+    // The zone's own composer border already carries the model, the mode, and what
+    // the finished turn measured, so no second status row is printed into it.
     drawZone()
   }
 
@@ -1138,12 +1130,9 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           return
         case 'escape':
           // Esc never cancels a turn: it reads the transcript instead, and the
-          // legend says which key does cancel. A stray Esc must not throw away a
-          // running answer.
-          if (running) {
-            hint = 'Ctrl+C прерывает ход'
-            return
-          }
+          // composer's legend already names the key that does cancel. A stray Esc
+          // must not throw away a running answer.
+          if (running) return
           draft = ''
           return
         case 'enter':

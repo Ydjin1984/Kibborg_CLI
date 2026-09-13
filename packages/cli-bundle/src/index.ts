@@ -31,7 +31,7 @@ export const KIBBORG_SCREENS = ['inline', 'fullscreen', 'minimal'] as const
 export interface KibborgCliSettings {
   /** Color preset: `ice` keeps the `UI.md` palette, `mono` prints without color. */
   readonly theme: (typeof KIBBORG_THEMES)[number]
-  /** Print a wall-clock prefix on the conversation lines it owns. */
+  /** Print the time a message was written beside it. */
   readonly timestamps: boolean
   /** Swap Enter and Ctrl+J: Enter breaks the line, Ctrl+J submits. */
   readonly multiline: boolean
@@ -47,7 +47,7 @@ export interface KibborgCliSettings {
 /** Resolved defaults: the composition's own values, below any user layer. */
 export const KIBBORG_CLI_DEFAULTS: KibborgCliSettings = {
   theme: 'ice',
-  timestamps: false,
+  timestamps: true,
   multiline: false,
   screen: 'inline',
 }
@@ -58,7 +58,7 @@ export const KIBBORG_CLI_NAMESPACE = settingsNamespace('kibborg-cli')
 /** Serialized schema the Settings page renders this section's form from. */
 const kibborgCliSchema: z<KibborgCliSettings> = z.object({
   theme: z.union([...KIBBORG_THEMES]).default('ice'),
-  timestamps: z.boolean().default(false),
+  timestamps: z.boolean().default(true),
   multiline: z.boolean().default(false),
   screen: z.union([...KIBBORG_SCREENS]).default('inline'),
 })

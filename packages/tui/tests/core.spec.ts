@@ -221,13 +221,19 @@ describe('layout', () => {
     expect(densityFor(79)).toBe('compact')
   })
 
-  it('stacks header, log, composer, and status over the full height', () => {
+  it('stacks header, log, and composer over the full height', () => {
     const layout = computeLayout(80, 24, { density: 'balanced', composerHeight: 3 })
     expect(layout.header.h).toBe(2)
     expect(layout.composer.h).toBe(3)
-    expect(layout.status?.h).toBe(1)
-    expect(layout.log.h).toBe(18)
+    // The framed composer carries the session facts, so no status row is reserved
+    // unless the caller asks for one.
+    expect(layout.status).toBeNull()
+    expect(layout.log.h).toBe(19)
     expect(layout.inner).toBe(76)
+    // A caller that still prints its own status row gets one.
+    const withStatus = computeLayout(80, 24, { density: 'balanced', composerHeight: 3, showStatus: true })
+    expect(withStatus.status?.h).toBe(1)
+    expect(withStatus.log.h).toBe(18)
   })
 
   it('keeps the height invariant for every terminal size', () => {
