@@ -604,6 +604,12 @@ node tests/frame-render.mjs --boot-ms 20000 --step "send:/model" \
 node tests/perf-scroll.mjs --entries 20000
 ```
 
+Что происходило в сессии, видно по её журналу — он лежит в `$DSH_HOME/sessions/<каталог>/<id>/session.jsonl.zstd` и хранится кадрами zstd:
+
+```bash
+node tests/session-log-summary.mjs "$DSH_HOME/sessions/--D-Deepseec_DaVinchi--/<id>/session.jsonl.zstd"
+```
+
 Ограничение среды: `conpty` в Windows не пропускает альтернативный экран, mouse-события и win32-input-mode. Такие вещи проверяются юнит-тестами, а не PTY.
 
 ---
