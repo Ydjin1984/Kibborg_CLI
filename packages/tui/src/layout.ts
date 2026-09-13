@@ -103,7 +103,9 @@ export function computeLayout(cols: number, rows: number, options: LayoutRequest
     }
     overlayH -= reduce(overlayH, 0)
     headerH -= reduce(headerH, 0)
-    composerH -= reduce(composerH, 1)
+    // The composer keeps its top border, one input row, and its bottom border: a box
+    // squeezed to a single row shows two borders and no place to type.
+    composerH -= reduce(composerH, Math.min(3, safeRows))
     statusH -= reduce(statusH, 0)
     logH = 0
   }

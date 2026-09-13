@@ -266,6 +266,16 @@ describe('layout', () => {
     expect(withStatus.log.h).toBe(18)
   })
 
+  it('keeps the composer usable when the terminal is barely tall enough', () => {
+    // A box squeezed to one row would show two borders and nowhere to type, so the
+    // composer keeps its three rows and the transcript gives up its height first.
+    const tight = computeLayout(60, 5, { density: 'compact', composerHeight: 4 })
+    expect(tight.composer.h).toBeGreaterThanOrEqual(3)
+    expect(tight.log.h).toBe(0)
+    const oneRow = computeLayout(60, 1, { density: 'compact', composerHeight: 4 })
+    expect(oneRow.composer.h).toBe(1)
+  })
+
   it('keeps the height invariant for every terminal size', () => {
     for (let rows = 1; rows <= 60; rows++) {
       for (const cols of [40, 79, 80, 110, 200]) {

@@ -106,7 +106,9 @@ export function drawLogView(buf: CellBuffer, rect: Rect, source: LogSource, stat
     const x = rect.x + Math.max(0, rect.w - label.length - 1)
     buf.write(x, rect.y + rect.h - 1, label, 'Muted', { dim: true })
   }
-  if (total > rect.h && rect.w >= 2) drawScrollbar(buf, rect, offset, maxOffset)
+  // A very narrow region keeps its text: the scrollbar would take the only column
+  // the transcript has left, and the position is already reported by the markers.
+  if (total > rect.h && rect.w >= 22) drawScrollbar(buf, rect, offset, maxOffset)
   return { offset, total, sticky, visible, painted }
 }
 
