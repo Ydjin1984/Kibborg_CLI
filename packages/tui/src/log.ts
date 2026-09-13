@@ -237,6 +237,13 @@ export interface RenderOptions {
   /** Lines drawn above the transcript, such as the welcome screen. */
   readonly leading?: readonly StyledLine[]
   /**
+   * Entry the reader has moved to.
+   *
+   * The chosen entry carries a mark in its first column, which is what tells the
+   * user what Enter and `y` will act on.
+   */
+  readonly selectedId?: number
+  /**
    * Entry of the newest answer.
    *
    * The answer a user is reading is never condensed, while the answers above it
@@ -901,14 +908,15 @@ function renderEntryCached(entry: LogEntry, width: number, options: RenderOption
   const lead = depth > 1 ? BRANCH_INDENT.repeat(Math.min(depth - 1, MAX_BRANCH_DEPTH)) : ''
   const answerRole = entry.id === options.lastAnswerId ? 'last' : 'past'
   const stamps = options.timestamps === false ? 'plain' : 'time'
-  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}|${stamps}`
+  const chosen = options.selectedId === entry.id ? 'sel' : 'plain'
+  const key = `${String(width)}|${String(entry.revision ?? 0)}|${String(tick)}|${entry.expanded === true ? 'x' : 'c'}|${options.hyperlinks === true ? 'h' : 'p'}|d${String(depth)}|${wall ? 'w' : 'n'}|${answerRole}|${stamps}|${chosen}`
   const cached = ENTRY_CACHE.get(entry.id)
   if (cached !== undefined && cached.key === key) return cached.lines
   // A row inside a delegation sits between the walls of its box; the walls take
   // their columns from the row's budget so nothing is drawn past the frame.
   const inside = Math.max(1, width - lead.length - (wall ? WALL_WIDTH : 0))
   const inner = renderEntry(entry, inside, options)
-  const lines = lead === '' && !wall
+  const lines = (lead === '' && !wall
     ? inner
     : inner.map(line => {
       const spans: Span[] = [{ text: lead, token: 'Subtle' as TokenName }]
@@ -920,10 +928,28 @@ function renderEntryCached(entry: LogEntry, width: number, options: RenderOption
         ...line,
         spans: [...spans, { text: `${' '.repeat(Math.max(0, width - used - 3))}  │`, token: 'Subtle' as TokenName }],
       }
-    })
+    })).map(line => (chosen === 'sel' ? markSelected(line) : line))
   ENTRY_CACHE.set(entry.id, { lines, key })
   trimEntryCache()
   return lines
+}
+
+/**
+ * Put the reader's mark in the first column of a chosen entry's row.
+ *
+ * The row keeps its width: the mark replaces the columns the indent already used,
+ * so nothing shifts when the selection moves.
+ * @param line - one row of the chosen entry.
+ * @returns the row with the mark.
+ */
+function markSelected(line: StyledLine): StyledLine {
+  const spans = [...line.spans]
+  const first = spans[0]
+  if (first === undefined) return { ...line, spans: [{ text: '▌', token: 'Accent' }] }
+  if (first.text.startsWith('  ')) spans[0] = { ...first, text: `▌ ${first.text.slice(2)}` }
+  else if (first.text.startsWith(' ')) spans[0] = { ...first, text: `▌${first.text.slice(1)}` }
+  else spans.unshift({ text: '▌', token: 'Accent' })
+  return { ...line, spans }
 }
 
 /**
@@ -968,6 +994,14 @@ export interface Transcript {
   readonly tops: readonly number[]
   /** Rows in the whole transcript. */
   readonly total: number
+  /**
+   * Row where each entry's own lines begin.
+   *
+   * A reader moves through the transcript entry by entry, and the surface scrolls
+   * to the chosen one without walking the log again. An entry a folded branch
+   * hides has no row and is absent.
+   */
+  readonly entryTops: ReadonlyMap<number, number>
 }
 
 /** The line that separates two entries of different kinds. */
@@ -977,6 +1011,7 @@ const SEPARATOR: readonly StyledLine[] = [{ spans: [] }]
 interface TranscriptState {
   readonly parts: (readonly StyledLine[])[]
   readonly tops: number[]
+  readonly entryTops: Map<number, number>
   total: number
 }
 
@@ -989,6 +1024,7 @@ let transcriptCache: {
   readonly tick: number
   readonly leading: readonly StyledLine[] | undefined
   readonly lastAnswerId: number | undefined
+  readonly selectedId: number | undefined
   readonly state: TranscriptState
 } | undefined
 
@@ -1028,18 +1064,21 @@ export function renderTranscript(
     && cached.hyperlinks === hyperlinks
     && cached.tick === tick
     && cached.leading === options.leading
-    && cached.lastAnswerId === options.lastAnswerId) {
+    && cached.lastAnswerId === options.lastAnswerId
+    && cached.selectedId === options.selectedId) {
     return cached.state
   }
-  const state: TranscriptState = cached?.state ?? { parts: [], tops: [], total: 0 }
+  const state: TranscriptState = cached?.state ?? { parts: [], tops: [], entryTops: new Map(), total: 0 }
   // A different entry list means a different transcript model — `/new`, a fork, or
   // a test's second log — and entry identities restart from one there, so the
   // per-entry cache would answer with lines another log rendered.
   if (cached !== undefined && cached.entries !== entries) ENTRY_CACHE.clear()
   const parts = state.parts as (readonly StyledLine[])[]
   const tops = state.tops
+  const entryTops = state.entryTops
   parts.length = 0
   tops.length = 0
+  entryTops.clear()
   let top = 0
   const push = (lines: readonly StyledLine[]): void => {
     if (lines.length === 0) return
@@ -1097,6 +1136,9 @@ export function renderTranscript(
     const separated = entry.kind === 'user' || entry.kind === 'assistant' || entry.kind === 'stage' || entry.kind === 'plan'
     if (separated && lastLine !== undefined && plainText(lastLine).trim() !== '') push(SEPARATOR)
     const lines = renderEntryCached(entry, width, perEntry)
+    // The row is recorded before the lines are pushed: a reader who moves to this
+    // entry scrolls to where its own text starts, not to the blank row above it.
+    entryTops.set(entry.id, top)
     push(lines)
     lastLine = lines[lines.length - 1] ?? lastLine
   }
@@ -1107,7 +1149,7 @@ export function renderTranscript(
   if (ENTRY_CACHE.size > live.size) {
     for (const id of [...ENTRY_CACHE.keys()]) if (!live.has(id)) ENTRY_CACHE.delete(id)
   }
-  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, lastAnswerId: options.lastAnswerId, state }
+  transcriptCache = { entries, width, version: options.version, hyperlinks, tick, leading, lastAnswerId: options.lastAnswerId, selectedId: options.selectedId, state }
   return state
 }
 

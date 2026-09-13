@@ -22,7 +22,7 @@ import type { Rect } from './box.ts'
 import { drawBox } from './box.ts'
 import { computeLayout, densityFor, type Density } from './layout.ts'
 import type { KeyEvent } from './input.ts'
-import type { LogModel } from './log.ts'
+import type { LogModel, LogEntry, Transcript } from './log.ts'
 import { createLog, clampScroll, renderTranscript } from './log.ts'
 import { drawLogView, paintStyledLine } from './logview.ts'
 import { drawHeader, HEADER_HEIGHT, type HeaderState } from './header.ts'
@@ -196,6 +196,9 @@ const FLASH_MS = 5000
 /** Input rows the composer may grow to while a draft spans several lines. */
 const COMPOSER_MAX_ROWS = 8
 
+/** Legend shown while the reader is moving through the transcript. */
+const READER_HINT = 'Enter — развернуть · h/l — свернуть/развернуть · y — копировать · ↑↓ — выбор'
+
 /** Rows a wheel notch scrolls. */
 const WHEEL_LINES = 3
 
@@ -236,6 +239,8 @@ export function createApp(options: AppOptions): App {
   let stopped = false
   let transcriptHeight = 0
   let viewportHeight = 1
+  /** The transcript the last frame painted, for scrolling to a chosen entry. */
+  let transcript: Transcript | null = null
   let unhandled: ((key: KeyEvent) => void) | undefined
   let onAccept: ((item: MenuItem) => void) | undefined
   let onMenuClose: ((nested: boolean) => void) | undefined
@@ -406,8 +411,10 @@ export function createApp(options: AppOptions): App {
       tick,
       hyperlinks: true,
       version: log.version,
+      ...(selectedEntry === null ? {} : { selectedId: selectedEntry }),
       ...(welcome === null ? {} : { leading: renderWelcome({ ...welcome, tick }, logWidth, layout.log.h) }),
     })
+    transcript = body
     transcriptHeight = body.total
     viewportHeight = layout.log.h
     if (follow) offset = clampScroll(Number.MAX_SAFE_INTEGER, transcriptHeight, viewportHeight)
@@ -440,7 +447,9 @@ export function createApp(options: AppOptions): App {
     // The legend answers what the user can do next: while a turn runs the only
     // useful keys are the ones that stop it or read the transcript, and an empty
     // legend falls back to the surface's own key list.
-    const legend = running ? COMPOSER_RUNNING_HINT : hint === '' ? COMPOSER_HINT : hint
+    const legend = running
+      ? COMPOSER_RUNNING_HINT
+      : selectedEntry !== null ? READER_HINT : hint === '' ? COMPOSER_HINT : hint
     drawComposer(buf, layout.composer, { draft, hint: legend, running, status: facts.status, counters: facts.counters })
     paintSelection(buf)
     lastFrame = buf
@@ -461,6 +470,82 @@ export function createApp(options: AppOptions): App {
     offset = clampScroll(offset + delta, transcriptHeight, viewportHeight)
     follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
     render()
+  }
+
+  /** Entry the reader moved to, or `null` while the view follows the tail. */
+  let selectedEntry: number | null = null
+
+  /** The entries the reader can walk to, in display order. */
+  const reachable = (): readonly LogEntry[] =>
+    transcript === null ? [] : log.entries.filter(entry => (transcript as Transcript).entryTops.has(entry.id))
+
+  /** Scroll so the chosen entry's own rows are inside the viewport. */
+  const revealSelection = (): void => {
+    if (selectedEntry === null || transcript === null) return
+    const top = transcript.entryTops.get(selectedEntry)
+    if (top === undefined) return
+    if (top >= offset && top < offset + viewportHeight) return
+    offset = clampScroll(top - Math.floor(viewportHeight / 3), transcriptHeight, viewportHeight)
+  }
+
+  /**
+   * Move the reader's mark through the transcript.
+   *
+   * The first press of `↑` picks the newest entry, so reading back is one key
+   * away; `↓` past the last entry releases the mark and the view follows the tail
+   * again.
+   * @param delta - `-1` for the entry above, `1` for the entry below.
+   */
+  const moveSelection = (delta: number): void => {
+    const entries = reachable()
+    if (entries.length === 0) return
+    if (selectedEntry === null) {
+      if (delta > 0) return
+      selectedEntry = entries[entries.length - 1]?.id ?? null
+    } else {
+      const index = entries.findIndex(entry => entry.id === selectedEntry)
+      const next = index + delta
+      if (next < 0) return
+      selectedEntry = next >= entries.length ? null : entries[next]?.id ?? null
+    }
+    if (selectedEntry === null) {
+      follow = true
+      scrollBy(Number.MAX_SAFE_INTEGER)
+      return
+    }
+    revealSelection()
+    follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
+    render()
+  }
+
+  /** Fold or unfold the chosen entry. */
+  const toggleSelected = (): void => {
+    if (selectedEntry === null) return
+    const entry = log.entries.find(candidate => candidate.id === selectedEntry)
+    if (entry === undefined) return
+    log.patch(selectedEntry, { expanded: entry.expanded !== true })
+    render()
+  }
+
+  /**
+   * Copy the chosen entry to the clipboard.
+   *
+   * The reader asked for the entry, not for its screen form, so the text is the
+   * entry's own body with the detail it carries: an answer as written, a tool call
+   * with its arguments and output.
+   */
+  const copySelected = (): void => {
+    if (selectedEntry === null) return
+    const entry = log.entries.find(candidate => candidate.id === selectedEntry)
+    if (entry === undefined) return
+    const parts: string[] = []
+    if (entry.kind === 'tool') parts.push(entry.title ?? entry.text)
+    else parts.push(entry.text)
+    if (entry.input !== undefined && entry.input !== '') parts.push(entry.input)
+    if (entry.output !== undefined && entry.output !== '') parts.push(entry.output)
+    if (entry.diff !== undefined && entry.diff.length > 0) parts.push(entry.diff.join('\n'))
+    const text = parts.filter(part => part.trim() !== '').join('\n\n')
+    if (text !== '') onSelection?.(text)
   }
 
   /** Any key the composer consumes ends the welcome screen. */
@@ -677,15 +762,48 @@ export function createApp(options: AppOptions): App {
             unhandled?.(key)
             return
           }
-          // With an empty composer the arrows read the transcript, which is what
-          // a user expects while reviewing a long answer; once there is a draft
-          // they belong to the input line and recall history there.
+          // With an empty composer the arrows walk the transcript entry by entry,
+          // which is what a user expects while reviewing a long answer; once there
+          // is a draft they belong to the input line and recall history there.
           if (draft.trim() !== '') {
             leaveWelcome()
             unhandled?.(key)
             return
           }
-          scrollBy(key.kind === 'up' ? -1 : 1)
+          leaveWelcome()
+          moveSelection(key.kind === 'up' ? -1 : 1)
+          return
+        }
+        case 'enter': {
+          // Enter opens the entry the reader moved to. With no entry chosen the
+          // key belongs to the loop, which submits the draft.
+          if (draft.trim() === '' && selectedEntry !== null) {
+            toggleSelected()
+            return
+          }
+          leaveWelcome()
+          unhandled?.(key)
+          return
+        }
+        case 'char': {
+          // While the reader is in the transcript, `h`/`l` fold and unfold the
+          // chosen entry and `y` copies it. Anything else starts a draft, and a
+          // draft means the reader is done with the transcript.
+          if (key.text === 'y' && draft === '' && selectedEntry !== null) {
+            copySelected()
+            return
+          }
+          if (draft === '' && selectedEntry !== null && (key.text === 'h' || key.text === 'l')) {
+            log.patch(selectedEntry, { expanded: key.text === 'l' })
+            render()
+            return
+          }
+          if (selectedEntry !== null) {
+            selectedEntry = null
+            render()
+          }
+          leaveWelcome()
+          unhandled?.(key)
           return
         }
         default:

@@ -787,6 +787,52 @@ describe('fullscreen app', () => {
     expect(header[1]).toContain('─')
   })
 
+  it('walks the transcript with the arrows and folds the chosen entry', () => {
+    const { stream, written } = fakeStream(90, 20)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const output = Array.from({ length: 40 }, (_, index) => `строка вывода ${String(index)}`).join('\n')
+    const tool = app.log.append({ kind: 'tool', text: 'big.md', name: 'read', status: 'ok', output, title: 'Читает big.md' })
+    const answer = app.log.append({ kind: 'assistant', text: 'готово' })
+    app.start()
+    written.length = 0
+    // The first `↑` picks the newest entry and marks it, so the reader knows what
+    // Enter and `y` will act on.
+    app.handleKey({ kind: 'up' })
+    let frame = written.join('')
+    expect(frame).toContain('▌')
+    expect(frame).toContain('h/l — свернуть/развернуть')
+    written.length = 0
+    app.handleKey({ kind: 'up' })
+    expect(written.join('')).toContain('Читает big.md')
+    // `l` unfolds the chosen entry and `h` folds it back.
+    written.length = 0
+    app.handleKey({ kind: 'char', text: 'l' })
+    expect(app.log.entries.find(entry => entry.id === tool)?.expanded).toBe(true)
+    app.handleKey({ kind: 'char', text: 'h' })
+    expect(app.log.entries.find(entry => entry.id === tool)?.expanded).toBe(false)
+    // `y` copies the entry's own body, arguments and output included.
+    const copied: string[] = []
+    app.onSelection(text => { copied.push(text) })
+    app.handleKey({ kind: 'char', text: 'y' })
+    expect(copied.join('\n')).toContain('Читает big.md')
+    expect(copied.join('\n')).toContain('строка вывода 39')
+    // Walking past the last entry releases the mark and follows the tail again.
+    app.handleKey({ kind: 'down' })
+    written.length = 0
+    app.handleKey({ kind: 'down' })
+    expect(written.join('')).not.toContain('▌')
+    expect(answer).toBeGreaterThan(0)
+    app.stop()
+  })
+
   it('hides a long tool output behind a row that expands it on a click', () => {
     const { stream, written } = fakeStream(90, 24)
     const app = createApp({

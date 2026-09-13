@@ -62,7 +62,7 @@
 | ID | Статус | Задача | Артефакт | Проверка |
 |---|---|---|---|---|
 | 2.1 | todo | Вызовы инструментов как `♦ Run/Read/Edit/Grep/Ask` вместо сырых имён и JSON | `packages/client-node/src/arguments.ts`, `packages/tui/src/log.ts` | `tool-title.spec.ts` + кадр |
-| 2.2 | todo | Результат инструмента сворачивается под вызовом, `Enter` — просмотр целиком | `packages/tui/src/log.ts` | тест сворачивания и раскрытия клавишей |
+| 2.2 | **done** | Результат инструмента сворачивается под вызовом, `Enter` — просмотр целиком (мышь не перехватывается, поэтому раскрытие клавиатурное) | `packages/tui/src/log.ts`, `packages/tui/src/app.ts` | `surface.spec.ts`; живой кадр |
 | 2.3 | todo | Diff правки в стиле Grok: приглушённый контекст, один акцент на добавление и удаление | `packages/tui/src/log.ts` | тест вида diff |
 | 2.4 | todo | Размышления отдельными блоками с длительностью (`♦ Thought for 2.2s`) | `packages/client-node/src/turn.ts`, `packages/tui/src/log-renderer.ts` | тест блока и кадр |
 | 2.5 | todo | Субагенты как дочерние сессии: тип, задача, прогресс, сводка родителю | `packages/tui/src/log.ts`, `packages/client-node/src/agents.ts` | `agents.spec.ts` |
@@ -83,7 +83,7 @@
 
 | ID | Статус | Задача | Артефакт | Проверка |
 |---|---|---|---|---|
-| 4.1 | todo | `Tab` — фокус между лентой и вводом; `↑↓` — выбор записи; `h`/`l` — свернуть/развернуть; `y` — копировать блок | `packages/tui/src/app.ts`, `packages/client-node/src/repl.ts` | тесты клавиш ленты |
+| 4.1 | **частично** | `↑↓` — выбор записи ленты, `h`/`l` — свернуть/развернуть, `y` — копировать блок сделаны; `Tab`-фокус между лентой и вводом ещё нет | `packages/tui/src/app.ts`, `packages/client-node/src/repl.ts` | `surface.spec.ts`; живой кадр |
 | 4.2 | **done** | `Ctrl+C` отменяет ход; `Esc` — нет: читает ленту и говорит, чем прервать | `packages/client-node/src/repl.ts` | живой кадр во время хода; тест клавиш — 4.1 |
 | 4.3 | todo | `Shift+Tab` — смена режима, режим виден в статусе | `packages/client-node/src/repl.ts` | тест смены режима |
 | 4.4 | todo | `Ctrl+x` — справка по клавишам | `packages/client-node/src/repl.ts` | тест открытия справки |
