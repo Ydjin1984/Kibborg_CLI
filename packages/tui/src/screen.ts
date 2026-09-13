@@ -62,8 +62,9 @@ export interface Screen {
   /**
    * Display a composed frame, writing only the rows that changed.
    * @param buffer - the frame to display; it is copied, so the caller may reuse it.
+   * @returns the bytes written, so a caller can journal how much a frame cost.
    */
-  present(buffer: CellBuffer): void
+  present(buffer: CellBuffer): number
   /**
    * Place the terminal cursor, one-based as the terminal addresses it.
    * @param row - one-based row.
@@ -210,12 +211,13 @@ export function createScreen(options: ScreenOptions): Screen {
       previous = null
     },
     present(buffer) {
-      if (!entered) return
+      if (!entered) return 0
       const update = diffBuffers(previous, buffer)
       previous = copyBuffer(buffer)
-      if (update === '') return
+      if (update === '') return 0
       const frame = caps.syncOutput ? `\u001B[?2026h${update}\u001B[?2026l` : update
       stdout.write(frame)
+      return frame.length
     },
     setCursor(row, col) {
       if (!entered) return

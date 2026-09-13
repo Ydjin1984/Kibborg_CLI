@@ -33,8 +33,7 @@ import {
   densityFor,
   detectCaps,
   displayWidth,
-  drawHeader,
-  historyPath,
+  drawHeader,  historyPath,
   loadHistory,
   paletteForTheme,
   panelLines,
@@ -44,6 +43,7 @@ import {
   type CellBuffer,
   type CompletionSources,
   type KeyEvent,
+  type Logbook,
   type Palette,
   type TerminalCaps,
   type TokenName,
@@ -51,6 +51,7 @@ import {
 import { runTurn } from './turn.ts'
 import { createEscapeIdle } from './escape-idle.ts'
 import { splitCommand, type SurfaceState } from './command-router.ts'
+import { silentLogbook } from '@kibborg/tui'
 import {
   parseAnswerLine,
   type ApprovalDecision,
@@ -98,6 +99,8 @@ export interface FullscreenSession {
   readonly panel: { open(): Promise<PanelState>; readonly session: PanelSession }
   /** Runs one slash line; the local router owns its own commands and writes through the given sink. */
   readonly onCommand: (line: string, write: (chunk: string) => void) => Promise<CommandOutcome>
+  /** Diagnostics journal; a surface without one records nothing. */
+  readonly logbook?: Logbook
 }
 
 /** The panel name `delta` steps away from the current one, wrapping around. */
@@ -236,6 +239,7 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
   if (!caps.interactive || !caps.altScreen) return 'unsupported'
 
   const screen = createScreen({ stdout, stdin, caps })
+  const journal = session.logbook ?? silentLogbook
   const feed = createFeed()
   const history = [...loadHistory(historyPath(session.home))]
   let historyIndex = history.length
@@ -571,6 +575,21 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
 
   const handle = (key: KeyEvent): void => {
     if (process.env['KIBBORG_TRACE'] === '1') process.stderr.write(`kibborg[trace]: key ${key.kind}\n`)
+    if (journal.enabled('trace')) {
+      journal.write({
+        level: 'trace',
+        scope: 'input',
+        action: key.kind,
+        ok: true,
+        details: {
+          screen: 'fullscreen',
+          draft,
+          running,
+          ...(key.kind === 'char' ? { text: key.text } : {}),
+          ...(key.kind === 'mouse' ? { mouse: key.event.action } : {}),
+        },
+      })
+    }
     // The live data panel owns the keyboard while it is open: it is a read-only
     // view, so only navigation, refresh, and close apply.
     if (sidePanel !== undefined) {

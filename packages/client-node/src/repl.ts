@@ -13,6 +13,7 @@
  */
 
 import { stdin, stdout } from 'node:process'
+import { readFile } from 'node:fs/promises'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
@@ -43,6 +44,7 @@ import {
   type MenuItem,
   type Palette,
 } from '@kibborg/tui'
+import { silentLogbook, type Logbook } from '@kibborg/tui'
 import { runTurn } from './turn.ts'
 import { createEscapeIdle } from './escape-idle.ts'
 import { renderSessionHistory } from './history-render.ts'
@@ -103,7 +105,7 @@ interface Usage {
  * so they are added explicitly: a user looking for the way out has to find it in
  * the list, not only by typing its name from memory.
  */
-const LOCAL_COMMANDS: readonly string[] = ['new', 'resume', 'sessions', 'model', 'effort', 'permission', 'quit', 'exit']
+const LOCAL_COMMANDS: readonly string[] = ['new', 'resume', 'sessions', 'model', 'effort', 'permission', 'logs', 'quit', 'exit']
 
 /** What the interactive loop needs from its host. */
 export interface ReplOptions {
@@ -140,6 +142,14 @@ export interface ReplOptions {
    * never claims a mode the host would refuse.
    */
   readonly permissionModes?: readonly string[]
+  /**
+   * Diagnostics journal.
+   *
+   * The loop records what the user asked for and what came of it: the command or task
+   * that was submitted, how long it took, the host's answer, and every failure. A
+   * caller that passes nothing gets a journal that records nothing.
+   */
+  readonly logbook?: Logbook
   /** The tabs modal: how to read its registries and what to act through. */
   readonly panel: {
     /** Read every registry and return the modal's opening state. */
@@ -156,11 +166,32 @@ function namesCommand(line: string, sources: CompletionSources): boolean {
 }
 
 /**
+ * Render a journal record's details as one short line.
+ *
+ * The file keeps every field; the on-screen view keeps the few that identify the
+ * action, so a line stays readable in a narrow composer.
+ * @param details - the record's details, when it has any.
+ * @returns a compact `{key: value, …}`, or an empty string.
+ */
+function compact(details: Readonly<Record<string, unknown>> | undefined): string {
+  if (details === undefined) return ''
+  const parts: string[] = []
+  for (const [key, value] of Object.entries(details)) {
+    if (value === undefined || value === null) continue
+    const shown = typeof value === 'string' ? value : JSON.stringify(value)
+    parts.push(`${key}: ${shown.length > 28 ? `${shown.slice(0, 27)}…` : shown}`)
+    if (parts.length === 4) break
+  }
+  return parts.length === 0 ? '' : `  {${parts.join(', ')}}`
+}
+
+/**
  * Run the interactive loop until the user leaves.
  * @param options - client, session, status values, and the history location.
  * @returns the process exit code.
  */
 export async function runInteractive(options: ReplOptions): Promise<number> {
+  const logbook = options.logbook ?? silentLogbook
   const cols = stdout.columns ?? 88
   // The box is inset by two columns on each side, so its inner width is the
   // terminal minus four and never wider than what is left.
@@ -181,6 +212,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         palette,
         version: SURFACE_VERSION,
         cwd: process.cwd().replace(/\\/gu, '/'),
+        logbook,
         status: {
           model: options.state.model,
           mode: options.state.mode,
@@ -733,6 +765,47 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         announce(`модель: ${label}`)
       })
     },
+    '/logs': async () => {
+      const file = logbook.file
+      if (file === undefined) {
+        emit('  журнал выключен: KIBBORG_LOG=off\n')
+        return
+      }
+      // The last records of the journal are what a bug report needs, so the command
+      // prints them here instead of sending the user to find the file. Frame records
+      // are counted, not printed: at the trace level they are most of the file and
+      // they would push everything else out of the window.
+      const wanted = 40
+      logbook.flush()
+      emit(`  журнал: ${file}\n`)
+      try {
+        const text = await readFile(file, 'utf8')
+        const lines = text.split('\n').filter(line => line.trim() !== '')
+        const shown: string[] = []
+        let frames = 0
+        for (const line of lines.slice(-400)) {
+          let record: { time?: string; level?: string; scope?: string; action?: string; ok?: boolean; ms?: number; reason?: string; details?: Record<string, unknown> }
+          try {
+            record = JSON.parse(line) as typeof record
+          } catch {
+            shown.push(`  ${line}`)
+            continue
+          }
+          if (record.scope === 'render') {
+            frames += 1
+            continue
+          }
+          const mark = record.ok === false ? '✗' : '·'
+          const ms = record.ms === undefined ? '' : ` ${record.ms.toFixed(1)}ms`
+          const reason = record.reason === undefined ? '' : `  ← ${record.reason}`
+          shown.push(`  ${mark} ${(record.time ?? '').slice(11, 23)} ${record.scope ?? '?'}/${record.action ?? '?'}${ms}${reason}${compact(record.details)}`)
+        }
+        for (const line of shown.slice(-wanted)) emit(`${line}\n`)
+        if (frames > 0) emit(`  (кадров пропущено: ${String(frames)} — они есть в файле)\n`)
+      } catch (error) {
+        emit(`  журнал недоступен: ${error instanceof Error ? error.message : String(error)}\n`)
+      }
+    },
     '/effort': async () => {
       const items = [
         { group: 'EFFORT', name: 'low', desc: 'быстрые ответы' },
@@ -854,9 +927,20 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     const action = surfaceCommands[task]
     if (action !== undefined) {
       commandBusy = true
+      const started = Date.now()
+      logbook.write({ level: 'info', scope: 'command', action: 'surface', details: { line: task, draft: task } })
       try {
         await action()
+        logbook.write({ level: 'info', scope: 'command', action: 'surface-done', ok: true, ms: Date.now() - started, details: { line: task } })
       } catch (error) {
+        logbook.write({
+          level: 'error',
+          scope: 'command',
+          action: 'surface-failed',
+          ok: false,
+          ms: Date.now() - started,
+          details: { line: task, error: error instanceof Error ? error.message : String(error) },
+        })
         emit(`  команда не выполнена: ${error instanceof Error ? error.message : String(error)}\n`)
       } finally {
         commandBusy = false
@@ -867,13 +951,32 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     if (task.startsWith('/') && namesCommand(task, options.sources)) {
       commandBusy = true
       clearZone()
+      const started = Date.now()
+      logbook.write({ level: 'info', scope: 'command', action: 'host', details: { line: task } })
       try {
         const outcome = await options.onCommand(task, emit)
         if (!outcome.ok) emit(`  ${outcome.error ?? 'command failed'}\n`)
         else if (outcome.text !== undefined) emit(`  ${outcome.text}\n`)
+        logbook.write({
+          level: outcome.ok ? 'info' : 'error',
+          scope: 'command',
+          action: 'host-done',
+          ok: outcome.ok,
+          ms: Date.now() - started,
+          ...(outcome.ok ? {} : { reason: outcome.error ?? 'хост отказал без причины' }),
+          details: { line: task, text: outcome.text },
+        })
       } catch (error) {
         // A command that throws must still say so: a silent failure would look
         // like the line was never submitted.
+        logbook.write({
+          level: 'error',
+          scope: 'command',
+          action: 'host-failed',
+          ok: false,
+          ms: Date.now() - started,
+          details: { line: task, error: error instanceof Error ? error.message : String(error) },
+        })
         emit(`  command failed: ${error instanceof Error ? error.message : String(error)}\n`)
       } finally {
         commandBusy = false
@@ -883,6 +986,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
     running = true
     turnStartedAt = Date.now()
+    logbook.write({ level: 'info', scope: 'turn', action: 'start', details: { task, model: options.state.model } })
     clearZone()
     // The work row is the last line of the transcript while the turn runs: it says
     // what the agent is doing, how long, and how many tokens it has spent. The
@@ -974,6 +1078,25 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     options.state.contextPercent = contextPercent
     controller = undefined
     running = false
+    // What the turn cost is the fact a report asks for first: kind, tokens, seconds,
+    // tool calls, and the answer's size.
+    logbook.write({
+      level: outcome.kind === 'completed' ? 'info' : 'error',
+      scope: 'turn',
+      action: 'end',
+      ok: outcome.kind === 'completed',
+      ms: Date.now() - turnStartedAt,
+      ...(outcome.kind === 'completed' ? {} : { reason: outcome.errorMessage ?? outcome.kind }),
+      details: {
+        kind: outcome.kind,
+        tokens: outcome.tokens,
+        seconds: outcome.seconds,
+        tools: outcome.tools,
+        answerChars: outcome.answer.length,
+        contextPercent,
+        session: sessionId,
+      },
+    })
     // The hint belonged to the turn: leaving it in place would keep telling the
     // user how to interrupt a run that has already finished.
     hint = ''
@@ -1046,7 +1169,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       process.stderr.write = ((chunk: unknown): boolean => {
         for (const line of String(chunk).split('\n')) {
           const trimmed = line.trimEnd()
-          if (trimmed.trim() !== '') note(`  ${trimmed}\n`)
+          if (trimmed.trim() !== '') {
+            // Anything the host or a dependency writes to stderr is a failure worth
+            // keeping: it used to reach the user's transcript and nothing else.
+            logbook.write({ level: 'error', scope: 'stderr', action: 'write', ok: false, details: { line: trimmed } })
+            note(`  ${trimmed}\n`)
+          }
         }
         return true
       }) as typeof process.stderr.write
@@ -1081,10 +1209,26 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
 
     const handle = (key: KeyEvent): void => {
-      // Tracing is opt-in and goes to stderr, which the surface folds into the
-      // transcript: it answers "why did this key do nothing" without a debugger.
-      if (process.env['KIBBORG_TRACE'] === '1') {
-        process.stderr.write(`kibborg[trace]: key ${key.kind} busy=${String(commandBusy)} draft=${JSON.stringify(draft)} running=${String(running)}\n`)
+      // Keys that reach the loop rather than the surface are journaled here: with the
+      // surface's own record this covers every press, and the loop's entries say what
+      // the loop did with it.
+      if (logbook.enabled('trace')) {
+        logbook.write({
+          level: 'trace',
+          scope: 'input',
+          action: key.kind,
+          ok: !commandBusy,
+          ...(commandBusy ? { reason: 'команда ещё выполняется, ввод заблокирован' } : {}),
+          details: {
+            draft,
+            running,
+            commandBusy,
+            ...(key.kind === 'char' ? { text: key.text } : {}),
+            panel: panel !== undefined,
+            approval: approval !== undefined,
+            question: question !== undefined,
+          },
+        })
       }
       // A running command owns the keyboard: a second Enter while one is still
       // reading its registry would submit on top of it and print into a zone
@@ -1405,12 +1549,29 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         // clipboard directly and the surface says how much went there.
         const lines = text.split('\n').length
         void copyToClipboard(text).then(copied => {
+          logbook.write({
+            level: copied ? 'info' : 'error',
+            scope: 'clipboard',
+            action: 'copy',
+            ok: copied,
+            ...(copied ? {} : { reason: 'буфер обмена недоступен или отказал' }),
+            details: { chars: text.length, lines },
+          })
           if (copied) announce(`скопировано строк: ${String(lines)}`)
           else emit('  не удалось обратиться к буферу обмена\n')
         })
       })
       app.onOpen(target => {
-        if (openTarget(target)) announce(`открыто: ${target}`)
+        const opened = openTarget(target)
+        logbook.write({
+          level: opened ? 'info' : 'error',
+          scope: 'open',
+          action: 'open-target',
+          ok: opened,
+          ...(opened ? {} : { reason: 'система не открыла цель' }),
+          details: { target },
+        })
+        if (opened) announce(`открыто: ${target}`)
         else emit(`  не удалось открыть: ${target}\n`)
       })
       app.onUnhandled(key => handle(key))

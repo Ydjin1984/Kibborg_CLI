@@ -16,6 +16,9 @@ export { displayWidth, padLeft, padRight, takeHeadWidth, takeTailWidth } from '.
 export type { FooterInput, StatusInput } from './status.ts'
 export { composerFacts, contextBar, formatTokens, statusLine, thinkingToken, turnFooter } from './status.ts'
 
+export type { ActionOutcome, Logbook, LogLevel, LogRecord } from './logbook.ts'
+export { createLogbook, logLevelOf, silentLogbook } from './logbook.ts'
+
 export type { ComposerFrame, ComposerInput, ComposerView } from './composer.ts'
 export {
   COMPOSER_CONTINUATION,

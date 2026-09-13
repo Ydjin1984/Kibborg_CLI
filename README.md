@@ -512,6 +512,8 @@ kibborg settings show orchestrator          # настройки оркестр�
 | `KIBBORG_INLINE=1` | всегда inline: не захватывать экран |
 | `KIBBORG_MOUSE=1` | перехватить мышь: колесо и клик по строкам-маркерам |
 | `KIBBORG_NO_WIN32_INPUT=1` | не включать Win32 input mode и kitty protocol |
+| `KIBBORG_LOG` | уровень журнала: `info` (по умолчанию), `trace`, `error`, `off` |
+| `KIBBORG_LOG_FILE` | путь журнала; по умолчанию `$DSH_HOME/logs/kibborg.jsonl` |
 | `KIBBORG_TRACE=1` | трассировка решений и клавиш в stderr |
 | `DSH_PERMISSION_MODE` | стартовый режим разрешений (перебивается `/permission`) |
 | `NO_COLOR`, `TERM=dumb`, `CI` | отключают цвета и интерактив (как принято в CLI) |
@@ -616,6 +618,25 @@ node tests/session-log-summary.mjs "$DSH_HOME/sessions/--D-Deepseec_DaVinchi--/<
 
 ## Диагностика
 
+### Журнал действий
+
+Kibborg пишет журнал того, что делает пользователь и что из этого вышло: каждая клавиша с указанием, кто её обработал, каждое действие (выбор записи, раскрытие, копирование, прокрутка) с временем выполнения, результатом и причиной отказа, каждая команда, каждый ход и каждая ошибка. Формат — JSONL, по записи на строку:
+
+```json
+{"time":"2026-09-13T17:39:10.891Z","level":"trace","scope":"view","action":"scroll-down","ok":false,"reason":"лента уже на краю","details":{"from":0,"to":0,"total":7,"viewport":16,"follow":true}}
+```
+
+| Что | Где |
+|---|---|
+| Уровень | `KIBBORG_LOG=info` (по умолчанию: действия, команды, ходы, ошибки), `trace` (плюс каждая клавиша и каждый кадр с временем и объёмом), `error` (только сбои), `off` |
+| Файл | `$DSH_HOME/logs/kibborg.jsonl`, переопределяется `KIBBORG_LOG_FILE`; файл ротируется по 5 МБ, хранятся 5 копий |
+| Прочитать здесь же | `/logs` печатает последние записи; кадры в выводе не показываются, только считаются |
+| Почему действие не сработало | поле `reason` в записи; кадры и клавиши несут `details.by` — кто обработал клавишу: `menu`, `dialog`, `reader`, `surface` или `loop` |
+
+Пример разбора «Enter на строке не развернул блок»: в журнале будет запись `scope: reader`, `action: toggle-entry`, `ok: false`, `reason: "у записи нет скрытых строк: разворачивать нечего"` и `details: {entryId, kind, expanded, lines, delta}`.
+
+Дополнительно, `stderr` самого хоста и его плагинов попадает в журнал как записи уровня `error` со `scope: stderr` — именно там видны стек-трейсы, которые раньше только мелькали в кадре.
+
 | Симптом | Что делать |
 |---|---|
 | `kibborg: a task is required` | передайте задачу: `kibborg "…"` или `kibborg -p "…"` |
@@ -624,9 +645,10 @@ node tests/session-log-summary.mjs "$DSH_HOME/sessions/--D-Deepseec_DaVinchi--/<
 | Кривые символы в кадре | терминал без UTF-8: включите UTF-8 или задайте `KIBBORG_INLINE=1` |
 | Не работает `Shift+Enter` | используйте `Ctrl+J`; проверьте `KIBBORG_NO_WIN32_INPUT` |
 | Копирование даёт «кракозябры» | обновите CLI: копирование идёт через `Set-Clipboard`; проверьте `Get-Clipboard -Raw` |
+| Что-то не реагирует на клавишу | `/logs`, затем посмотрите `ok` и `reason` последних записей; для полного потока — `KIBBORG_LOG=trace` |
 | `serve` отказывается стартовать | не-loopback без токена: добавьте `--token` или слушайте `127.0.0.1` |
 | `attach` отвечает 401 | токен не совпадает с `KIBBORG_SERVER_TOKEN` сервера |
-| Нужны подробности | `KIBBORG_TRACE=1 kibborg …`, затем `kibborg doctor --json` |
+| Нужны подробности | `/logs`, `KIBBORG_LOG=trace kibborg …`, затем `kibborg doctor --json` |
 
 Больше случаев — в [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 

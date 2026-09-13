@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-cmdline'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { InProcessApiClient, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
-import { paletteForTheme, statusLine } from '@kibborg/tui'
+import { createLogbook, logLevelOf, paletteForTheme, statusLine } from '@kibborg/tui'
 import { LOCAL_COMMANDS, nearestCommand, routeCommand, splitCommand, type SurfaceState } from './command-router.ts'
 import { emptyCompletionSources, fillCompletionSources } from './completion-sources.ts'
 import { exportSessionLog } from './export-session.ts'
@@ -39,6 +39,7 @@ import { runSkillsCommand } from './skills-command.ts'
 import { executeCommand, listCommands, type CommandOutcome } from './remote.ts'
 import { parseAttachTarget, RemoteApiClient } from './remote-client.ts'
 import { runInteractive } from './repl.ts'
+import { SURFACE_VERSION } from './version.ts'
 import { printHistory, resolveSession, runSessionCommand } from './sessions.ts'
 import { runSettingsCommand } from './settings-command.ts'
 import { readSurfaceSettings } from './surface-settings.ts'
@@ -349,6 +350,48 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
   if (task === '' && process.stdin.isTTY === true) {
     const surface = await readSurfaceSettings(client)
     const state = surfaceStateOf(badge, git)
+    // Diagnostics for the interactive surface: every key, action, frame, and failure
+    // goes to a journal file, because an interactive bug is the kind a report cannot
+    // describe from memory. `KIBBORG_LOG=off` silences it, `trace` records frames too.
+    const journal = createLogbook({
+      level: logLevelOf(process.env['KIBBORG_LOG']),
+      file: process.env['KIBBORG_LOG_FILE'] ?? join(dshHome(), 'logs', 'kibborg.jsonl'),
+    })
+    journal.write({
+      level: 'info',
+      scope: 'session',
+      action: 'start',
+      details: {
+        version: SURFACE_VERSION,
+        sessionId,
+        cwd: process.cwd(),
+        screen: surface.screen,
+        theme: surface.theme,
+        model: state.model,
+        mode: state.mode,
+        args: process.argv.slice(2),
+        pid: process.pid,
+        node: process.version,
+        terminal: { TERM: process.env['TERM'], COLORTERM: process.env['COLORTERM'], columns: process.stdout.columns, rows: process.stdout.rows },
+      },
+    })
+    // A crash is the event a journal exists for: record it, name the context, and
+    // flush before the process dies.
+    const crash = (kind: string) => (error: unknown) => {
+      journal.write({
+        level: 'error',
+        scope: 'process',
+        action: kind,
+        ok: false,
+        details: {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack?.split('\n').slice(0, 6).join('\n') : undefined,
+        },
+      })
+      journal.flush()
+    }
+    process.on('uncaughtException', crash('uncaught-exception'))
+    process.on('unhandledRejection', crash('unhandled-rejection'))
     const hostEntries = attached ? [] : await listCommands(ctx, sessionId)
     // Only the command names are needed to open the surface; the candidate scan
     // waits for the first Tab, so a large working directory and a long session
@@ -375,6 +418,7 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
         sources,
         fillSources,
         panel,
+        logbook: journal,
         onCommand: (line, write) => routeCommand(line, {
           ctx,
           client,
@@ -403,6 +447,7 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
       // The presets the composition mounts: the picker and Shift+Tab walk this
       // list, so neither can offer a mode the host would refuse.
       permissionModes: permissionModes(ctx),
+      logbook: journal,
       onCommand: (line, write) => routeCommand(line, {
         ctx,
         client,
@@ -411,6 +456,8 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
         state,
       }, hostLine => hostCommand(ctx, attached, sessionId, hostLine)),
     })
+    journal.write({ level: 'info', scope: 'session', action: 'exit', details: { code } })
+    journal.close()
     ctx.appExit?.(code)
     return
   }

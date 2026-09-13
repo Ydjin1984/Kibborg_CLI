@@ -33,6 +33,7 @@ import { createScreen, type Screen, type TerminalCaps } from './screen.ts'
 import { displayWidth } from './width.ts'
 import { composerBorderBottom, composerBorderTop, COMPOSER_HINT, COMPOSER_PREFIX, COMPOSER_RUNNING_HINT, composerView } from './composer.ts'
 import { composerFacts } from './status.ts'
+import { silentLogbook, type Logbook } from './logbook.ts'
 
 /** Session values shown in the status line. */
 export interface AppStatus {
@@ -80,6 +81,8 @@ export interface AppOptions {
   readonly welcome?: WelcomeState
   /** Forced capabilities, for tests. */
   readonly caps?: TerminalCaps
+  /** Diagnostics journal; a surface without one records nothing. */
+  readonly logbook?: Logbook
 }
 
 /** The interactive surface. */
@@ -209,6 +212,8 @@ const WHEEL_LINES = 3
  */
 export function createApp(options: AppOptions): App {
   const palette = options.palette
+  const logbook = options.logbook ?? silentLogbook
+  const now = (): number => Date.now()
   const screen = createScreen({
     stdout: options.stdout,
     stdin: options.stdin,
@@ -385,6 +390,10 @@ export function createApp(options: AppOptions): App {
 
   const render = (): void => {
     if (stopped) return
+    // The frame is timed as a whole: how long the surface took to answer a key is the
+    // number a lag report needs, and its byte size says whether the terminal was asked
+    // to repaint more than the change.
+    const frameStarted = now()
     // The mark belongs to an entry: when `/new` clears the transcript, or the work
     // row is removed at the end of a turn, the reader's focus has nothing to act on.
     if (!selectionAlive()) selectedEntry = null
@@ -466,7 +475,7 @@ export function createApp(options: AppOptions): App {
     drawComposer(buf, layout.composer, { draft, hint: legend, running, status: facts.status, counters: facts.counters })
     paintSelection(buf)
     lastFrame = buf
-    screen.present(buf)
+    const frameBytes = screen.present(buf)
     // The caret is placed after every frame, not only when it moved: painting the
     // frame moves the terminal's own caret to the last cell it wrote, which during
     // a turn is the border the elapsed time changes in. With the reader in the
@@ -480,11 +489,40 @@ export function createApp(options: AppOptions): App {
       screen.showCursor()
       screen.setCursor(cursor.row, cursor.col)
     }
+    if (logbook.enabled('trace')) {
+      logbook.write({
+        level: 'trace',
+        scope: 'render',
+        action: 'frame',
+        ok: true,
+        ms: Math.round((now() - frameStarted) * 100) / 100,
+        details: {
+          bytes: frameBytes,
+          rows: rows,
+          lines: transcriptHeight,
+          offset,
+          selected: selectedEntry,
+          menu: menuView !== null,
+          dialog: dialog === null ? null : dialog.label,
+        },
+      })
+    }
   }
 
   const scrollBy = (delta: number): void => {
+    const before = offset
     offset = clampScroll(offset + delta, transcriptHeight, viewportHeight)
     follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
+    if (logbook.enabled('trace')) {
+      logbook.write({
+        level: 'trace',
+        scope: 'view',
+        action: delta < 0 ? 'scroll-up' : 'scroll-down',
+        ok: offset !== before,
+        ...(offset === before ? { reason: 'лента уже на краю' } : {}),
+        details: { from: before, to: offset, total: transcriptHeight, viewport: viewportHeight, follow },
+      })
+    }
     render()
   }
 
@@ -513,34 +551,72 @@ export function createApp(options: AppOptions): App {
    * @param delta - `-1` for the entry above, `1` for the entry below.
    */
   const moveSelection = (delta: number): void => {
-    const entries = reachable()
-    if (entries.length === 0) return
-    if (selectedEntry === null) {
-      if (delta > 0) return
-      selectedEntry = entries[entries.length - 1]?.id ?? null
-    } else {
-      const index = entries.findIndex(entry => entry.id === selectedEntry)
-      const next = index + delta
-      if (next < 0) return
-      selectedEntry = next >= entries.length ? null : entries[next]?.id ?? null
-    }
-    if (selectedEntry === null) {
-      follow = true
-      scrollBy(Number.MAX_SAFE_INTEGER)
-      return
-    }
-    revealSelection()
-    follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
-    render()
+    logbook.record('reader', delta < 0 ? 'select-previous' : 'select-next', { from: selectedEntry }, () => {
+      const entries = reachable()
+      if (entries.length === 0) {
+        return { ok: false, reason: 'в ленте нет записей, по которым можно ходить' }
+      }
+      const before = selectedEntry
+      if (selectedEntry === null) {
+        if (delta > 0) return { ok: false, reason: 'лента уже следует за хвостом' }
+        selectedEntry = entries[entries.length - 1]?.id ?? null
+      } else {
+        const index = entries.findIndex(entry => entry.id === selectedEntry)
+        const next = index + delta
+        if (next < 0) return { ok: false, reason: 'выше записей больше нет', details: { at: entries[0]?.id } }
+        selectedEntry = next >= entries.length ? null : entries[next]?.id ?? null
+      }
+      if (selectedEntry === null) {
+        follow = true
+        scrollBy(Number.MAX_SAFE_INTEGER)
+        return { ok: true, details: { from: before, to: null, entries: entries.length } }
+      }
+      revealSelection()
+      follow = offset >= Math.max(0, transcriptHeight - viewportHeight)
+      render()
+      const entry = log.entries.find(candidate => candidate.id === selectedEntry)
+      return {
+        ok: true,
+        details: {
+          from: before,
+          to: selectedEntry,
+          entries: entries.length,
+          kind: entry?.kind,
+          offset,
+        },
+      }
+    })
   }
 
-  /** Fold or unfold the chosen entry. */
+  /** Fold or unfold the chosen entry, and record whether the screen changed. */
   const toggleSelected = (): void => {
-    if (selectedEntry === null) return
-    const entry = log.entries.find(candidate => candidate.id === selectedEntry)
-    if (entry === undefined) return
-    log.patch(selectedEntry, { expanded: entry.expanded !== true })
-    render()
+    logbook.record('reader', 'toggle-entry', { entryId: selectedEntry }, () => {
+      if (selectedEntry === null) return { ok: false, reason: 'ни одна запись не выбрана' }
+      const entry = log.entries.find(candidate => candidate.id === selectedEntry)
+      if (entry === undefined) {
+        return { ok: false, reason: 'выбранная запись исчезла из ленты', details: { entryId: selectedEntry } }
+      }
+      const beforeLines = transcriptHeight
+      const expanded = entry.expanded !== true
+      log.patch(entry.id, { expanded })
+      render()
+      const applied = log.entries.find(candidate => candidate.id === entry.id)?.expanded === expanded
+      const changed = transcriptHeight !== beforeLines
+      const reason = !applied
+        ? 'лента не применила разворот'
+        : changed ? undefined : 'у записи нет скрытых строк: разворачивать нечего'
+      return {
+        ok: applied && changed,
+        ...(reason === undefined ? {} : { reason }),
+        details: {
+          entryId: entry.id,
+          kind: entry.kind,
+          expanded,
+          lines: transcriptHeight,
+          delta: transcriptHeight - beforeLines,
+        },
+      }
+    })
   }
 
   /**
@@ -551,17 +627,32 @@ export function createApp(options: AppOptions): App {
    * with its arguments and output.
    */
   const copySelected = (): void => {
-    if (selectedEntry === null) return
-    const entry = log.entries.find(candidate => candidate.id === selectedEntry)
-    if (entry === undefined) return
-    const parts: string[] = []
-    if (entry.kind === 'tool') parts.push(entry.title ?? entry.text)
-    else parts.push(entry.text)
-    if (entry.input !== undefined && entry.input !== '') parts.push(entry.input)
-    if (entry.output !== undefined && entry.output !== '') parts.push(entry.output)
-    if (entry.diff !== undefined && entry.diff.length > 0) parts.push(entry.diff.join('\n'))
-    const text = parts.filter(part => part.trim() !== '').join('\n\n')
-    if (text !== '') onSelection?.(text)
+    logbook.record('reader', 'copy-entry', { entryId: selectedEntry }, () => {
+      if (selectedEntry === null) return { ok: false, reason: 'ни одна запись не выбрана' }
+      const entry = log.entries.find(candidate => candidate.id === selectedEntry)
+      if (entry === undefined) {
+        return { ok: false, reason: 'выбранная запись исчезла из ленты', details: { entryId: selectedEntry } }
+      }
+      const parts: string[] = []
+      if (entry.kind === 'tool') parts.push(entry.title ?? entry.text)
+      else parts.push(entry.text)
+      if (entry.input !== undefined && entry.input !== '') parts.push(entry.input)
+      if (entry.output !== undefined && entry.output !== '') parts.push(entry.output)
+      if (entry.diff !== undefined && entry.diff.length > 0) parts.push(entry.diff.join('\n'))
+      const text = parts.filter(part => part.trim() !== '').join('\n\n')
+      if (text === '') {
+        return { ok: false, reason: 'у записи нет текста для копирования', details: { entryId: entry.id, kind: entry.kind } }
+      }
+      // The clipboard itself is written by the caller: the surface reports the text it
+      // handed over, and the loop reports whether the clipboard accepted it.
+      const accepted = onSelection !== undefined
+      onSelection?.(text)
+      return {
+        ok: accepted,
+        ...(accepted ? {} : { reason: 'поверхности не передан обработчик копирования' }),
+        details: { entryId: entry.id, kind: entry.kind, chars: text.length, lines: text.split('\n').length },
+      }
+    })
   }
 
   /** Any key the composer consumes ends the welcome screen. */
@@ -629,6 +720,18 @@ export function createApp(options: AppOptions): App {
       onAccept = handler
     },
     handleKey(key) {
+      // Every key is journaled with the part of the surface that consumed it and how
+      // long that took: an interactive bug is usually "this key did nothing", and the
+      // answer has to name who was supposed to act. The loop behind this surface is
+      // told apart from the surface itself by whether the key was forwarded to it.
+      const started = now()
+      let forwarded = false
+      const savedUnhandled = unhandled
+      unhandled = (event: KeyEvent) => {
+        forwarded = true
+        savedUnhandled?.(event)
+      }
+      try {
       // The palette owns the arrows and the Tab key while the draft names a command.
       if (menuView !== null) {
         const count = menuView.items.length
@@ -863,6 +966,30 @@ export function createApp(options: AppOptions): App {
         default:
           leaveWelcome()
           unhandled?.(key)
+      }
+      } finally {
+        unhandled = savedUnhandled
+        if (logbook.enabled('trace')) {
+          const by = forwarded
+            ? 'loop'
+            : menuView !== null ? 'menu' : dialog !== null ? 'dialog' : selectedEntry !== null ? 'reader' : 'surface'
+          logbook.write({
+            level: 'trace',
+            scope: 'key',
+            action: key.kind,
+            ok: true,
+            ms: Math.round((now() - started) * 100) / 100,
+            details: {
+              by,
+              ...(key.kind === 'char' ? { text: key.text } : {}),
+              ...(key.kind === 'mouse' ? { mouse: key.event.action, x: key.event.x, y: key.event.y } : {}),
+              draft,
+              selected: selectedEntry,
+              dialog: dialog === null ? null : dialog.label,
+              menu: menuView !== null,
+            },
+          })
+        }
       }
     },
     onUnhandled(handler) {

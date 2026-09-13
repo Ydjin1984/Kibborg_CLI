@@ -96,6 +96,7 @@ const COMMAND_META: Readonly<Record<string, { readonly group: string; readonly d
   memory: { group: 'PROJECT', desc: 'project memory' },
   worktree: { group: 'PROJECT', desc: 'isolated worktree' },
   doctor: { group: 'SYS', desc: 'environment check' },
+  logs: { group: 'SYS', desc: 'журнал действий и ошибок' },
   usage: { group: 'SYS', desc: 'token and cost usage' },
   theme: { group: 'SYS', desc: 'ice or mono' },
   config: { group: 'SYS', desc: 'settings file' },

@@ -13,7 +13,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const lib = join(here, '..', 'packages', 'tui', 'lib', 'index.js')
-const { createLog, renderTranscript, createApp, plainPalette, displayWidth } = await import(pathToFileURL(lib).href)
+const { createLogbook, createLog, renderTranscript, createApp, plainPalette, displayWidth } = await import(pathToFileURL(lib).href)
 
 const argv = process.argv.slice(2)
 const flag = (name, fallback) => {
@@ -71,6 +71,12 @@ time('renderTranscript (selection moves)', () => {
 
 // A whole frame through the surface, including the cell buffer and the terminal diff.
 let written = 0
+let records = 0
+/** A journal that counts what a traced surface would write, without touching a disk. */
+const traced = argv.includes('--trace')
+const journal = traced
+  ? createLogbook({ level: 'trace', sink: chunk => { records += chunk.split('\n').length - 1 } })
+  : undefined
 const fake = {
   columns: width,
   rows,
@@ -93,6 +99,9 @@ const app = createApp({
   cwd: '/work',
   status: { model: 'm', mode: 'Agent', contextPercent: 10 },
   caps: { altScreen: true, mouse: false, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+  // The journal is measured in the same run: diagnostics must not be the reason a
+  // scroll lags, so its records are counted and thrown away here.
+  logbook: journal,
 })
 for (const entry of log.entries) app.log.append(entry)
 app.start()
@@ -104,8 +113,13 @@ const step = time('createApp.render (arrow step)', index => {
   app.handleKey({ kind: index % 2 === 0 ? 'up' : 'down' })
 }, 10)
 console.log(`bytes written while stepping: ${String(written)} (${(written / 10).toFixed(0)} per step)`)
+if (journal !== undefined) {
+  journal.flush()
+  console.log(`journal records while stepping: ${String(records)}`)
+}
 console.log(`rows pushed per frame: roughly ${String(Math.round(step))} ms of work`)
 app.stop()
+journal?.close()
 
 // Sanity: the frame really did contain the transcript, not an empty screen.
 console.log(`frame width used: ${String(displayWidth(' '.repeat(Math.min(width, 40))))}`)
