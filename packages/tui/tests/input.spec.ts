@@ -59,6 +59,13 @@ describe('parseKeys', () => {
     expect(unfinished.pending).toContain('partial')
   })
 
+  it('decodes Win32 key reports carried inside a bracketed paste', () => {
+    // A terminal in Win32-input-mode puts raw key reports inside the paste instead of
+    // decoded text; the paste has to turn them back into characters and line breaks.
+    const pasted = parseKeys('\u001B[200~\u001B[4;20;116;1;0;1_\u001B[13;28;13;1;0;1_\u001B[13;28;13;0;0;1_\u001B[5;20;101;1;0;1_\u001B[201~')
+    expect(pasted.keys).toEqual([{ kind: 'paste', text: 't\ne' }])
+  })
+
   it('drops report tails whose escape byte was lost', () => {
     // A Windows terminal reports one sequence per key and a paste delivers a burst, so a
     // read boundary that swallows an escape byte leaves the rest of the report behind.

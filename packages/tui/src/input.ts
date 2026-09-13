@@ -196,6 +196,29 @@ function decodeWin32(fields: readonly number[]): KeyEvent | undefined {
 }
 
 /**
+ * Decode the content of a bracketed paste.
+ *
+ * A terminal in Win32-input-mode places its raw key reports inside the bracketed
+ * paste instead of the decoded text, so the paste carries `ESC[Vk;…_` for every
+ * character and line break. This walks those reports back into plain text; a paste
+ * that already carries plain text (no escape bytes) is returned unchanged.
+ * @param text - the paste content between the `ESC[200~` and `ESC[201~` markers.
+ * @returns the plain text the paste represents.
+ */
+function decodePasteContent(text: string): string {
+  if (!text.includes('\u001B')) return text
+  const parsed = parseKeys(text)
+  let out = ''
+  for (const key of parsed.keys) {
+    if (key.kind === 'char') out += key.text
+    else if (key.kind === 'enter' || key.kind === 'newline') out += '\n'
+    else if (key.kind === 'tab') out += '\t'
+    else if (key.kind === 'backspace') out = out.slice(0, -1)
+  }
+  return out
+}
+
+/**
  * Decode one chunk of raw input.
  * @param chunk - bytes or text read from stdin.
  * @returns the decoded keys and any incomplete sequence tail.
@@ -221,7 +244,7 @@ export function parseKeys(chunk: string): KeyParseResult {
       if (pasteStart === 0) {
         const end = rest.indexOf(`${ESC}[201~`)
         if (end === -1) return incomplete(rest)
-        keys.push({ kind: 'paste', text: rest.slice(6, end) })
+        keys.push({ kind: 'paste', text: decodePasteContent(rest.slice(6, end)) })
         pasted = true
         index += end + 6
         continue
