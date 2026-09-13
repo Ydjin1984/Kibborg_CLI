@@ -11,6 +11,8 @@
 
 import type { TokenName } from './tokens.ts'
 import { displayWidth, takeHeadWidth, wrapText } from './width.ts'
+import { elapsedLabel } from './anim.ts'
+import { formatTokens } from './status.ts'
 export { wrapText }
 import { renderMarkdown } from './markdown.ts'
 
@@ -113,6 +115,14 @@ export interface LogEntry {
    * keeps the JSON in {@link LogEntry.input} for the expanded layer.
    */
   readonly title?: string
+  /**
+   * Tokens the entry's turn has moved so far.
+   *
+   * The work row reports them while the turn runs, the way the reference CLIs do:
+   * a long turn then shows that it is producing something, not only that it is
+   * still alive.
+   */
+  readonly tokens?: number
   /** Tool name, for the detail layer of `kind: 'tool'`. */
   readonly toolName?: string
   /**
@@ -609,19 +619,27 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
       return options.lastAnswerId === entry.id ? marked : condense(marked, entry, width)
     }
     case 'stage': {
-      const glyph = options.runningGlyph ?? '✳'
+      // The work row is the last line of the transcript while a turn runs: a mark,
+      // what the agent is doing, how long it has been at it, how many tokens it has
+      // spent, and the key that stops it. It is replaced by the answer itself.
+      const live = entry.status === 'running'
+      const glyph = live ? (options.runningGlyph ?? '♦') : '♦'
       const prefix: Span[] = [
         { text: INDENT, token: 'Muted' },
-        { text: glyph, token: 'Shimmer', bold: true },
-        { text: '  ', token: 'Muted' },
-        { text: `${entry.verb ?? 'Working'}…`, token: 'Text' },
+        { text: glyph, token: live ? 'Shimmer' : 'Success', bold: true },
+        { text: ' ', token: 'Muted' },
+        { text: entry.verb ?? 'Работаю', token: 'Text' },
         { text: '  ', token: 'Muted' },
       ]
       const suffix: Span[] = []
       if (entry.meta !== undefined && entry.meta !== '') suffix.push({ text: entry.meta, token: 'Muted' })
       if (entry.durationMs !== undefined) {
-        suffix.push({ text: `   ${(entry.durationMs / 1000).toFixed(1)}s`, token: 'Muted' })
+        suffix.push({ text: `  ${elapsedLabel(entry.durationMs)}`, token: 'Muted' })
       }
+      if (entry.tokens !== undefined && entry.tokens > 0) {
+        suffix.push({ text: `  ↓${formatTokens(entry.tokens)}`, token: 'Muted' })
+      }
+      if (live) suffix.push({ text: '  [stop]', token: 'Subtle', dim: true })
       return compose(prefix, entry.text, 'Muted', width, { suffix })
     }
     case 'tool': {

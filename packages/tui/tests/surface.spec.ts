@@ -225,6 +225,29 @@ describe('transcript rendering', () => {
     }
   })
 
+  it('shows the running turn as one work row with time, tokens, and the stop key', () => {
+    const log = createLog()
+    const id = log.append({
+      kind: 'stage',
+      text: '',
+      verb: 'Запускает go test ./...',
+      status: 'running',
+      durationMs: 24_000,
+      tokens: 34_700,
+    })
+    const running = renderEntries(log.entries, 100).map(plainText).join('\n')
+    expect(running).toContain('♦ Запускает go test ./...')
+    expect(running).toContain('24.0s')
+    expect(running).toContain('↓34.7k')
+    expect(running).toContain('[stop]')
+    // A finished row reports what the turn did and stops offering the key that would
+    // have stopped it.
+    log.patch(id, { status: 'ok' })
+    const done = renderEntries(log.entries, 100).map(plainText).join('\n')
+    expect(done).not.toContain('[stop]')
+    expect(done).toContain('↓34.7k')
+  })
+
   it('marks the status of a tool with its lifecycle color', () => {
     const log = createLog()
     log.append({ kind: 'tool', text: 'README.md', name: 'grep', status: 'ok', title: 'Ищет строки' })

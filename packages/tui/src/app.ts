@@ -31,7 +31,6 @@ import { renderMenu, type MenuItem, type MenuView, type DialogView } from './men
 import { wheelDelta } from './mouse.ts'
 import { createScreen, type Screen, type TerminalCaps } from './screen.ts'
 import { displayWidth } from './width.ts'
-import { workingSpinner } from './anim.ts'
 import { composerBorderBottom, composerBorderTop, COMPOSER_HINT, COMPOSER_PREFIX, COMPOSER_RUNNING_HINT, composerView } from './composer.ts'
 import { composerFacts } from './status.ts'
 
@@ -405,7 +404,6 @@ export function createApp(options: AppOptions): App {
     const logWidth = Math.max(20, layout.log.w - 1)
     const body = renderTranscript(log.entries, logWidth, {
       tick,
-      runningGlyph: workingSpinner(tick),
       hyperlinks: true,
       version: log.version,
       ...(welcome === null ? {} : { leading: renderWelcome({ ...welcome, tick }, logWidth, layout.log.h) }),

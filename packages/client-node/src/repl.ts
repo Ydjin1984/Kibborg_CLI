@@ -14,6 +14,7 @@
 
 import { stdin, stdout } from 'node:process'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { IApiClient } from '@deepseek-ai/dsh-host-apiproxy/client'
 import {
   appendHistory,
@@ -51,6 +52,7 @@ import { openTarget } from './open-target.ts'
 import type { CommandOutcome } from './remote.ts'
 import type { SurfaceState } from './command-router.ts'
 import { nearestCommand, splitCommand } from './command-router.ts'
+import { toolTitle } from './arguments.ts'
 import { actOnPanel, movePanelSelection, switchPanelTab, type PanelSession, type PanelState } from './panel.ts'
 import type { SurfaceSettings } from './surface-settings.ts'
 import type {
@@ -64,6 +66,17 @@ import { SURFACE_VERSION } from './version.ts'
 
 /** ANSI escape sequences, stripped when a line moves into the transcript log. */
 const ANSI_PATTERN = /\u001B\[[0-9;]*[A-Za-z]/gu
+
+/** How often the work row in the transcript is refreshed while a turn runs. */
+const WORK_ROW_MS = 250
+
+/** Token usage the host reports for one step of a turn. */
+interface Usage {
+  /** Prompt tokens counted for the step. */
+  readonly inputTokens: number
+  /** Completion tokens the step produced, when reported. */
+  readonly outputTokens?: number
+}
 
 /**
  * Commands this surface answers itself.
@@ -821,6 +834,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     running = true
     turnStartedAt = Date.now()
     clearZone()
+    // The work row is the last line of the transcript while the turn runs: it says
+    // what the agent is doing, how long, and how many tokens it has spent. The
+    // answer replaces it, so it is a status line rather than a log record.
+    let workId: number | undefined
+    let workTokens = 0
+    let workTimer: NodeJS.Timeout | undefined
     if (app !== undefined) {
       // The composer is not repainted while a turn runs, so clearing the line has
       // to reach the surface now: otherwise the submitted task stays visible in
@@ -828,6 +847,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       app.setDraft('')
       app.setHint('')
       app.setRunning(true, 'Working…')
+      workId = app.log.append({ kind: 'stage', text: '', verb: 'Думает', status: 'running', durationMs: 0, tokens: 0 })
+      workTimer = setInterval(() => {
+        if (workId === undefined) return
+        app.log.patch(workId, { durationMs: Date.now() - turnStartedAt, tokens: workTokens })
+      }, WORK_ROW_MS)
+      workTimer.unref?.()
     }
     controller = new AbortController()
     // The transcript names the model behind each line, and this surface already
@@ -847,6 +872,27 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       onQuestion: askQuestion,
       ...(route === undefined || route === '' ? {} : { model: route }),
       ...(options.settings.timestamps ? {} : { timestamps: false }),
+      // The work row follows the turn: the tool it is running becomes its verb, and
+      // the usage the host reports becomes its token count.
+      ...(workId === undefined ? {} : {
+        onEvent: (event: SessionEvent) => {
+          if (event.type === 'tool/call') {
+            const call = event.data as { readonly name?: string; readonly arguments?: string }
+            app?.log.patch(workId, { verb: toolTitle(call.name ?? 'инструмент', call.arguments ?? '') })
+            return
+          }
+          // The host reports usage per step, so the row's token count grows while the
+          // turn runs instead of appearing only when it ends.
+          const usage = event.type === 'assistant/message'
+            ? (event.data as { readonly usage?: Usage }).usage
+            : event.type === 'assistant/chunk' && (event.data as { readonly chunk?: { readonly type?: string } }).chunk?.type === 'usage'
+              ? (event.data as { readonly chunk?: { readonly usage?: Usage } }).chunk?.usage
+              : undefined
+          if (usage !== undefined) {
+            workTokens = Math.max(workTokens, usage.inputTokens + (usage.outputTokens ?? 0))
+          }
+        },
+      }),
       // The status line says how much work is in flight, so a long delegation shows
       // its progress instead of only a spinner.
       ...(app === undefined ? {} : {
@@ -865,6 +911,10 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             }),
           }),
     })
+    if (workTimer !== undefined) clearInterval(workTimer)
+    // The answer replaces the work row: it already said what the turn was doing, and
+    // the transcript keeps the result, not the progress that produced it.
+    if (workId !== undefined) app?.log.remove(workId)
     contextPercent = outcome.contextPercent
     options.state.contextPercent = contextPercent
     controller = undefined
