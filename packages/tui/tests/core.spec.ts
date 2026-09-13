@@ -161,9 +161,10 @@ describe('screen capabilities', () => {
     expect(detectCaps({ isTTY: true }, { COLORTERM: 'truecolor' }).trueColor).toBe(true)
   })
 
-  it('honours KIBBORG_NO_MOUSE', () => {
-    expect(detectCaps({ isTTY: true }, { KIBBORG_NO_MOUSE: '1' }).mouse).toBe(false)
-    expect(detectCaps({ isTTY: true }, {}).mouse).toBe(true)
+  it('keeps mouse reporting off unless the surface asks for it', () => {
+    expect(detectCaps({ isTTY: true }, {}).mouse).toBe(false)
+    expect(detectCaps({ isTTY: true }, { KIBBORG_MOUSE: '1' }).mouse).toBe(true)
+    expect(detectCaps({ isTTY: false }, { KIBBORG_MOUSE: '1' }).mouse).toBe(false)
   })
 })
 

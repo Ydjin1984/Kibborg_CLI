@@ -119,10 +119,17 @@ export function detectCaps(out: { readonly isTTY?: boolean }, env: NodeJS.Proces
     )
   return {
     altScreen: interactive,
-    // Only a non-empty value disables the mouse: an exported-but-empty variable
-    // means "unset" here, the same way the colour and CI gates read the
-    // environment.
-    mouse: interactive && (env['KIBBORG_NO_MOUSE'] ?? '') === '',
+    /**
+     * Mouse reporting stays off by default.
+     *
+     * Every reference CLI on this machine — Grok, Codex, Claude Code, OpenCode —
+     * leaves the mouse to the terminal, which is what makes drag-select, copy and
+     * wheel scrolling work there. A surface that turns reporting on takes those
+     * gestures away from the terminal and has to reimplement them; the ones we
+     * wrote were the part users could not use. `KIBBORG_MOUSE=1` opts back in for
+     * a surface that genuinely needs pointer events.
+     */
+    mouse: interactive && (env['KIBBORG_MOUSE'] ?? '') !== '',
     trueColor,
     syncOutput: interactive,
     bracketedPaste: interactive,

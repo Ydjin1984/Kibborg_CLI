@@ -8,6 +8,7 @@ import { createApp } from '../src/app.ts'
 import { plainPalette } from '../src/tokens.ts'
 import { statusLine } from '../src/status.ts'
 import { zoneCursor, zoneLines } from '../src/zone.ts'
+import { detectCaps } from '../src/screen.ts'
 import { renderHeader } from '../src/header.ts'
 import { displayWidth } from '../src/width.ts'
 
@@ -30,6 +31,20 @@ function fakeStream(columns = 100, rows = 30): { stream: NodeJS.WriteStream; wri
 }
 
 describe('mouse decoding', () => {
+  it('leaves the mouse to the terminal unless the surface opts in', () => {
+    const stream = fakeStream(80, 24).stream
+    // Every reference CLI (Grok, Codex, Claude Code, OpenCode) keeps reporting off,
+    // which is what lets the terminal own drag-select, copy and the wheel.
+    expect(detectCaps(stream, {}).mouse).toBe(false)
+    expect(detectCaps(stream, { KIBBORG_MOUSE: '' }).mouse).toBe(false)
+    expect(detectCaps(stream, { KIBBORG_MOUSE: '1' }).mouse).toBe(true)
+  })
+
+  it('keeps reporting off in a non-interactive stream', () => {
+    const stream = { columns: 80, rows: 24, isTTY: false, write: () => true } as unknown as NodeJS.WriteStream
+    expect(detectCaps(stream, { KIBBORG_MOUSE: '1' }).mouse).toBe(false)
+  })
+
   it('decodes wheel reports', () => {
     const up = decodeSgrMouse('<64;10;5M')
     expect(up?.action).toBe('wheel-up')

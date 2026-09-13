@@ -72,9 +72,9 @@ const ACTIONS: readonly (readonly [string, string])[] = [
 const TIPS: readonly string[] = [
   'Shift+Tab cycles Ask → Plan → Agent → YOLO',
   '/ opens the command palette; @ completes files',
-  'Ctrl+O shows the details of a node; Ctrl+Q leaves',
-  'wheel scrolls the transcript; PgUp/PgDn page it',
-  'drag over the frame to copy text; KIBBORG_NO_MOUSE=1 hands selection back to the terminal',
+  'Tab moves between the transcript and the prompt',
+  'select text with the terminal itself; the mouse stays yours',
+  'PgUp/PgDn page the transcript; Ctrl+Q leaves',
 ]
 
 /** Build a line from a single styled span. */
