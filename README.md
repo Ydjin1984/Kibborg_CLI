@@ -239,12 +239,12 @@ kibborg attach http://127.0.0.1:7317 --token <токен>
 Лента и строка ввода живут в одном кадре. Режим выбирается настройкой `screen` или флагами:
 
 ```bash
-kibborg --fullscreen     # альтернативный экран: кадр владеет терминалом
+kibborg                  # полноэкранный кадр по умолчанию (screen = fullscreen)
+kibborg --fullscreen     # то же явно: альтернативный экран, кадр владеет терминалом
 kibborg --minimal        # inline без захвата экрана
-kibborg                  # inline по умолчанию (настройка screen = inline)
 ```
 
-Если терминал не интерактивен, не поддерживает альтернативный экран или задан `KIBBORG_INLINE=1`, CLI сам остаётся в inline и печатает причину.
+Если терминал не интерактивен, не поддерживает альтернативный экран, задан `KIBBORG_INLINE=1` или выбран `screen = inline|minimal`, CLI остаётся в inline (scrollback).
 
 ### Headless
 
@@ -485,7 +485,7 @@ kibborg attach <url> --token <секрет>                     # полноце
 | `theme` | `ice`, `terminal`, `mono` | `ice` | палитра: GrokNight, цвета профиля терминала или монохром |
 | `timestamps` | `true`, `false` | `true` | время у сообщений беседы |
 | `multiline` | `true`, `false` | `false` | `Enter` переносит строку, `Ctrl+J` отправляет |
-| `screen` | `inline`, `fullscreen`, `minimal` | `inline` | режим экрана |
+| `screen` | `inline`, `fullscreen`, `minimal` | `fullscreen` | режим экрана |
 
 ```bash
 kibborg settings show kibborg-cli

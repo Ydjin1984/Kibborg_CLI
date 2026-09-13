@@ -56,6 +56,7 @@ import type { SurfaceState } from './command-router.ts'
 import { nearestCommand, splitCommand } from './command-router.ts'
 import { toolTitle } from './arguments.ts'
 import { actOnPanel, movePanelSelection, switchPanelTab, type PanelSession, type PanelState } from './panel.ts'
+import { formatPanelSnapshot, PANEL_NAMES, readPanelSnapshot, type PanelName } from './panels.ts'
 import type { SurfaceSettings } from './surface-settings.ts'
 import type {
   ApprovalDecision,
@@ -75,6 +76,27 @@ const WORK_ROW_MS = 250
 /** Permission presets `Shift+Tab` cycles through when the host declares none. */
 const FALLBACK_PERMISSION_MODES: readonly string[] = ['read-only', 'workspace-write', 'danger-full-access']
 
+/** The live-data panel name `delta` steps away from the current one, wrapping around. */
+function nextPanelName(current: PanelName, delta: number): PanelName {
+  const index = PANEL_NAMES.indexOf(current)
+  const next = (index + delta + PANEL_NAMES.length) % PANEL_NAMES.length
+  return PANEL_NAMES[next] ?? current
+}
+
+/** Human title of one live-data panel. */
+function panelTitle(name: PanelName): string {
+  switch (name) {
+    case 'sessions': return 'Sessions'
+    case 'subagents': return 'Subagents'
+    case 'jobs': return 'Jobs'
+    case 'queue': return 'Queue'
+    case 'context': return 'Context'
+    case 'goals': return 'Goal'
+    case 'todos': return 'Todos'
+    default: return name
+  }
+}
+
 /** Key list `Ctrl+x` prints into the transcript. */
 const KEY_HELP: readonly string[] = [
   'Enter — отправить, применить пункт или развернуть выбранную запись',
@@ -87,6 +109,7 @@ const KEY_HELP: readonly string[] = [
   'PgUp / PgDn — прокрутка на экран, Home / End — в начало и в конец ленты',
   'Ctrl+C — прервать ход; вне хода очистить черновик, второй раз выйти',
   'Ctrl+D — выйти, Ctrl+U — очистить строку, Ctrl+x — эта справка',
+  'Ctrl+O — живые панели: сессии, субагенты, jobs, очередь, контекст, goal, todos',
   'Esc — закрыть список или вопрос; ход не прерывает',
 ]
 
@@ -199,13 +222,35 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   const palette: Palette = paletteForTheme(options.settings.theme, process.env, true)
   const write = (chunk: string): void => void stdout.write(chunk)
 
+  /** Index of the first character of the line that contains `index`. */
+  const lineStart = (text: string, index: number): number => {
+    const at = text.lastIndexOf('\n', index - 1)
+    return at === -1 ? 0 : at + 1
+  }
+
+  /** Index just past the end of the line that contains `index`. */
+  const lineEnd = (text: string, index: number): number => {
+    const at = text.indexOf('\n', index)
+    return at === -1 ? text.length : at
+  }
+
+  /** Insert text at the caret, moving the caret past it. */
+  const insertAtCursor = (text: string): void => {
+    draft = `${draft.slice(0, cursor)}${text}${draft.slice(cursor)}`
+    cursor += text.length
+  }
+
   /**
-   * The fullscreen surface owns the terminal when output is a terminal and the
-   * caller did not ask for the inline layout with `KIBBORG_INLINE=1`. It keeps
-   * the brand header, the transcript, and the composer static instead of
-   * reprinting them, and drives scrolling from the mouse wheel.
+   * The fullscreen surface owns the terminal when output is a terminal, the
+   * `fullscreen` screen mode is in force, and the inline escape hatch
+   * (`KIBBORG_INLINE=1`) is not set. `inline` and `minimal` both stay on the
+   * scrollback and never take the alternate buffer. The surface keeps the brand
+   * header, the transcript, and the composer static instead of reprinting them,
+   * and drives scrolling from the mouse wheel.
    */
-  const app: App | undefined = stdout.isTTY === true && process.env['KIBBORG_INLINE'] !== '1'
+  const app: App | undefined = stdout.isTTY === true
+    && process.env['KIBBORG_INLINE'] !== '1'
+    && options.settings.screen === 'fullscreen'
     ? createApp({
         stdout,
         stdin,
@@ -262,6 +307,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           selected: question.selected,
           ...(current.multiSelect === true ? { multi: true } : {}),
           ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
+          ...(question.selected === (current.options ?? []).length ? { typed: draft } : {}),
         }),
         passthroughArrows: true,
       }
@@ -289,18 +335,60 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
   }
 
+  /**
+   * The live-data panel as a request box.
+   *
+   * It is a read-only list, so the box carries the rows and leaves the keys to
+   * this loop; the header names which panel is showing.
+   */
+  const dataPanelDialog = (): DialogView | null => {
+    if (dataPanel === undefined) return null
+    return {
+      token: 'Subtle',
+      label: panelTitle(dataPanel.name),
+      passthroughArrows: true,
+      lines: dataPanel.lines.map(text => ({ spans: [{ text, token: 'Text' as const }] })),
+    }
+  }
+
+  /**
+   * Load one live-data panel and show it.
+   *
+   * The snapshot is read asynchronously, so a close or a newer load can land
+   * while this one is in flight; the epoch makes the stale result a no-op.
+   */
+  const loadDataPanel = async (name: PanelName): Promise<void> => {
+    const epoch = (dataPanelEpoch += 1)
+    let loaded: { readonly name: PanelName; readonly lines: readonly string[] }
+    try {
+      const snapshot = await readPanelSnapshot(options.client, sessionId)
+      loaded = { name, lines: formatPanelSnapshot(snapshot, name) }
+    } catch (error) {
+      loaded = { name, lines: [error instanceof Error ? error.message : String(error)] }
+    }
+    if (epoch !== dataPanelEpoch) return
+    dataPanel = loaded
+    drawZone()
+  }
+
   const historyFile = historyPath(options.home)
   const history: string[] = [...loadHistory(historyFile)]
   let historyIndex = history.length
   /** The session this loop talks to; `/new` and the session picker replace it. */
   let sessionId: SessionId = options.sessionId
   let draft = ''
+  /** Caret index inside {@link draft}, so text can be edited mid-line. */
+  let cursor = 0
   let overlay: readonly string[] = []
   let hint = ''
   /** The tabs modal, while it is open. */
   let panel: PanelState | undefined
   /** One line of feedback shown inside the modal. */
   let panelStatus = ''
+  /** The live-data panel opened with Ctrl+O, while it is open. */
+  let dataPanel: { readonly name: PanelName; readonly lines: readonly string[] } | undefined
+  /** Bumped by every data-panel load and close, so stale loads are dropped. */
+  let dataPanelEpoch = 0
   let contextPercent = 0
   let zoneHeight = 0
   let running = false
@@ -340,7 +428,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       const reason = approval.pending.reason === undefined ? '' : ` — ${approval.pending.reason}`
       return [
         `  ${palette.paint('approval', 'Warn')}  ${palette.paint(tool, 'Text')}${palette.paint(reason, 'Muted')}`,
-        `  ${palette.paint('[y] once   [a] always   [n] deny   [esc] deny', 'Muted')}`,
+        `  ${palette.paint('[y] once   [n] deny   [esc] deny', 'Muted')}`,
       ]
     }
     if (question !== undefined) {
@@ -357,6 +445,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         selected: question.selected,
         ...(current.multiSelect === true ? { multi: true } : {}),
         ...(current.multiSelect === true ? { chosen: question.chosen } : {}),
+        ...(question.selected === (current.options ?? []).length ? { typed: draft } : {}),
       })
       const lines = [`  ${palette.paint(box.label, 'PermLav', { bold: true })}`]
       if (current.detail !== undefined) {
@@ -389,6 +478,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     new Promise<readonly QuestionAnswer[] | undefined>(resolve => {
       question = { pending, resolve, collected: [], index: 0, selected: 0, chosen: [] }
       draft = ''
+      cursor = 0
       overlay = pendingOverlay()
       drawZone()
     })
@@ -459,6 +549,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     active.selected = 0
     active.chosen = []
     draft = ''
+    cursor = 0
     hint = ''
     if (active.index >= active.pending.questions.length) {
       question = undefined
@@ -473,8 +564,9 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   const drawZone = (): void => {
     if (app !== undefined) {
       app.setDraft(draft)
+      app.setCursor(cursor)
       app.setHint(hint)
-      app.setDialog(currentDialog() ?? panelDialog())
+      app.setDialog(currentDialog() ?? panelDialog() ?? dataPanelDialog())
       app.render()
       return
     }
@@ -490,9 +582,11 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             ...panelLines(panel.view, { palette, cols }),
             ...(panelStatus === '' ? [] : [`  ${palette.paint(panelStatus, 'Muted')}`]),
           ]
-        : hint === ''
-          ? []
-          : [`  ${palette.paint(hint, 'Muted')}`]
+        : dataPanel !== undefined
+          ? [`  ${panelTitle(dataPanel.name)}`, ...dataPanel.lines.map(line => `  ${line}`)]
+          : hint === ''
+            ? []
+            : [`  ${palette.paint(hint, 'Muted')}`]
     const zoneStatus = {
       model: options.state.model,
       contextPercent,
@@ -522,6 +616,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       showHint: true,
       status: zoneStatus,
       cols,
+      cursorIndex: cursor,
       ...(overlayLines.length === 0 ? {} : { overlay: overlayLines }),
     })
     const toInputRow = zoneHeight - caret.row
@@ -626,6 +721,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     app?.closeMenu()
     app?.setMenuItems(menuItems)
     draft = app === undefined ? '' : '/'
+    cursor = draft.length
     app?.setDraft(draft)
     hint = ''
     drawZone()
@@ -635,6 +731,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
   const closePalette = (): void => {
     choosing = undefined
     draft = ''
+    cursor = 0
     hint = ''
     app?.setMenuItems(menuItems)
     app?.closeMenu()
@@ -662,6 +759,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       controller?.abort()
     }
     sessionEpoch += 1
+    // Any open modal or live-data panel belongs to the session being left: close
+    // both so the new session starts on its own transcript, not the old views.
+    panel = undefined
+    panelStatus = ''
+    dataPanel = undefined
+    dataPanelEpoch += 1
     sessionId = id
     // The transcript and the meters follow the session: another conversation's
     // answer would stay on screen as the newest text, and its context percentage
@@ -890,6 +993,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     history.push(task)
     historyIndex = history.length
     draft = ''
+    cursor = 0
     overlay = []
     hint = ''
     // A leading slash names a command only when one is registered under it. A
@@ -898,6 +1002,10 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     // line has to reach the model rather than the command registry.
     if (task === '/panel') {
       commandBusy = true
+      // The tabs modal and the live-data panel share the box slot: opening one
+      // closes the other, so a Ctrl+O view never sits under a /panel view.
+      dataPanel = undefined
+      dataPanelEpoch += 1
       // Reading every registry takes seconds; the empty composer alone would look
       // like the line was swallowed, so the modal appears with a progress row
       // before the read starts and is filled in when it returns.
@@ -1132,6 +1240,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     const task = text.trim()
     if (task === '') return
     draft = ''
+    cursor = 0
     hint = ''
     app?.setDraft('')
     app?.setHint('')
@@ -1151,6 +1260,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
       const candidate = history[index]
       if (candidate !== undefined && candidate.startsWith(draft) && candidate !== draft) {
         draft = candidate
+        cursor = candidate.length
         return
       }
     }
@@ -1271,6 +1381,33 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             return
         }
       }
+      // The live-data panel owns the keyboard while it is open: it is a
+      // read-only view, so only navigation, refresh, and close apply.
+      if (dataPanel !== undefined) {
+        switch (key.kind) {
+          case 'escape':
+          case 'ctrl-c':
+          case 'ctrl-d':
+            dataPanel = undefined
+            dataPanelEpoch += 1
+            // A panel does not own the interrupt while a turn runs: Ctrl+C still
+            // cancels the turn, and the panel closes with it.
+            if (key.kind === 'ctrl-c' && running) cancelTurn()
+            drawZone()
+            return
+          case 'tab':
+            void loadDataPanel(nextPanelName(dataPanel.name, 1))
+            return
+          case 'shift-tab':
+            void loadDataPanel(nextPanelName(dataPanel.name, -1))
+            return
+          case 'char':
+            if (key.text === 'r' || key.text === 'R') void loadDataPanel(dataPanel.name)
+            return
+          default:
+            return
+        }
+      }
       // An open request owns the keyboard until it is answered: its keys mean
       // the answer, never a new draft.
       if (approval !== undefined) {
@@ -1287,7 +1424,6 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         switch (key.kind) {
           case 'char':
             if (key.text === 'y' || key.text === 'Y') decide('allowed-once')
-            else if (key.text === 'a' || key.text === 'A') decide('allowed-once')
             else if (key.text === 'n' || key.text === 'N') decide('rejected')
             return
           case 'escape':
@@ -1366,6 +1502,13 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
         }
       }
       switch (key.kind) {
+        case 'ctrl-o': {
+          // Reaching here means no modal or data panel is open: the branches above
+          // close one. Opening a data panel while the tabs modal is up is refused.
+          if (panel !== undefined) return
+          void loadDataPanel('sessions')
+          return
+        }
         case 'ctrl-c':
           if (running) {
             cancelTurn()
@@ -1375,6 +1518,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           // gesture never throws away a half-typed task without a visible step.
           if (draft !== '') {
             draft = ''
+            cursor = 0
             return
           }
           leave(130)
@@ -1402,21 +1546,29 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           return
         }
         case 'escape':
-          // Esc never cancels a turn: it reads the transcript instead, and the
-          // composer's legend already names the key that does cancel. A stray Esc
-          // must not throw away a running answer.
+          // Esc never cancels a turn and never erases a draft: it closes lists and
+          // questions (handled above), and a stray Escape — or a mouse/CSI report
+          // split across two reads — must not throw away what the user typed.
+          // Ctrl+U clears the line, Ctrl+C interrupts.
           if (running) {
             app?.flash('Ctrl+C — прервать ход')
             return
           }
-          draft = ''
           return
         case 'enter':
           if (draft.trim() === '') return
+          // A trailing backslash continues the line: it is dropped and the caret
+          // moves to a fresh row instead of submitting. Two backslashes leave one
+          // literal backslash on the line and still break, the shell convention.
+          if (draft.endsWith('\\')) {
+            draft = `${draft.slice(0, -1)}\n`
+            cursor = draft.length
+            return
+          }
           // `multiline` swaps the two: Enter breaks the line and Ctrl+J
           // submits, which is the habit a terminal editor user brings.
           if (options.settings.multiline) {
-            draft += '\n'
+            insertAtCursor('\n')
             return
           }
           if (running && !namesLocalCommand(draft)) void steer(draft)
@@ -1428,23 +1580,45 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             else void submit(draft)
             return
           }
-          draft += '\n'
+          insertAtCursor('\n')
           return
         case 'char':
           hint = ''
-          draft += key.text
+          insertAtCursor(key.text)
           return
         case 'paste':
           hint = ''
-          draft += key.text
+          insertAtCursor(key.text)
           return
         case 'backspace':
           hint = ''
-          draft = draft.slice(0, -1)
+          if (cursor > 0) {
+            draft = `${draft.slice(0, cursor - 1)}${draft.slice(cursor)}`
+            cursor -= 1
+          }
+          return
+        case 'delete':
+          hint = ''
+          if (cursor < draft.length) {
+            draft = `${draft.slice(0, cursor)}${draft.slice(cursor + 1)}`
+          }
+          return
+        case 'left':
+          if (cursor > 0) cursor -= 1
+          return
+        case 'right':
+          if (cursor < draft.length) cursor += 1
+          return
+        case 'home':
+          cursor = lineStart(draft, cursor)
+          return
+        case 'end':
+          cursor = lineEnd(draft, cursor)
           return
         case 'ctrl-u':
           hint = ''
           draft = ''
+          cursor = 0
           return
         case 'tab': {
           // A prefix completes against its own source; a bare draft falls back
@@ -1453,6 +1627,7 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             const completed = completeDraft(draft, options.sources)
             if (completed.active) {
               draft = completed.draft
+              cursor = completed.draft.length
               hint = completed.candidates.length > 1 ? completionHint(completed.candidates) : ''
               if (completed.candidates.length === 0) hint = 'no match'
               drawZone()
@@ -1482,12 +1657,14 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           if (history.length === 0) return
           historyIndex = Math.max(0, historyIndex - 1)
           draft = history[historyIndex] ?? ''
+          cursor = draft.length
           return
         case 'down':
           hint = ''
           if (history.length === 0) return
           historyIndex = Math.min(history.length, historyIndex + 1)
           draft = historyIndex >= history.length ? '' : (history[historyIndex] ?? '')
+          cursor = draft.length
           return
         default:
           return

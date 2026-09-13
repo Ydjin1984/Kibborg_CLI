@@ -258,12 +258,12 @@ describe('layout', () => {
     // The framed composer carries the session facts, so no status row is reserved
     // unless the caller asks for one.
     expect(layout.status).toBeNull()
-    expect(layout.log.h).toBe(19)
+    expect(layout.log.h).toBe(18)
     expect(layout.inner).toBe(76)
     // A caller that still prints its own status row gets one.
     const withStatus = computeLayout(80, 24, { density: 'balanced', composerHeight: 3, showStatus: true })
     expect(withStatus.status?.h).toBe(1)
-    expect(withStatus.log.h).toBe(18)
+    expect(withStatus.log.h).toBe(17)
   })
 
   it('keeps the composer usable when the terminal is barely tall enough', () => {
@@ -281,7 +281,10 @@ describe('layout', () => {
       for (const cols of [40, 79, 80, 110, 200]) {
         const layout = computeLayout(cols, rows, { density: densityFor(cols), composerHeight: 3 })
         const total = layout.header.h + layout.log.h + (layout.overlay?.h ?? 0) + layout.composer.h + (layout.status?.h ?? 0)
-        expect(total).toBe(rows)
+        // The transcript keeps a one-row gap above the composer, so the regions sum
+        // to the terminal height minus that gap; the gap is given up when short.
+        expect(total).toBeGreaterThanOrEqual(rows - 1)
+        expect(total).toBeLessThanOrEqual(rows)
         for (const rect of [layout.header, layout.log, layout.overlay, layout.composer, layout.status]) {
           if (rect === null) continue
           expect(rect.w).toBeGreaterThanOrEqual(0)

@@ -14,7 +14,7 @@
  */
 
 import type { Palette } from './tokens.ts'
-import { displayWidth, padRight, takeHeadWidth, takeTailWidth } from './width.ts'
+import { displayWidth, padRight, takeHeadWidth, takeTailWidth, wrapText } from './width.ts'
 
 /** Outer inset of the box from the terminal edge, in columns. */
 export const COMPOSER_MARGIN = 2
@@ -26,7 +26,7 @@ export const COMPOSER_PREFIX = '> '
 export const COMPOSER_CONTINUATION = '  '
 
 /** How many draft rows the box shows before it starts scrolling. */
-export const COMPOSER_MAX_ROWS = 8
+export const COMPOSER_MAX_ROWS = 5
 
 /** Key legend shown between the draft and the bottom border. */
 export const COMPOSER_HINT = '@ файлы   / команды   ! shell   shift+enter — новая строка'
@@ -111,6 +111,34 @@ export function composerView(draft: string, availableWidth: number): ComposerVie
   return { text: `…${tail}`, hidden: characterCount(draft) - characterCount(tail) }
 }
 
+/** Columns a draft row may use for its text, derived from the composer width. */
+function wrapWidthOf(innerWidth: number): number {
+  const content = Math.max(1, Math.max(6, innerWidth) - 2)
+  return Math.max(1, content - 1 - displayWidth(COMPOSER_CONTINUATION))
+}
+
+/**
+ * The draft split into visual rows, each wrapped to fit the composer's width.
+ *
+ * A pasted long line folds into several rows instead of being clipped to its
+ * tail, so the box grows with the pasted text.
+ * @param draft - the current draft.
+ * @param innerWidth - the composer's inner width (`cols - 4`).
+ * @returns the visual rows, never empty.
+ */
+export function visualRowsOf(draft: string, innerWidth: number): string[] {
+  const wrapWidth = wrapWidthOf(innerWidth)
+  const out: string[] = []
+  for (const line of draft.split('\n')) {
+    if (line === '') {
+      out.push('')
+      continue
+    }
+    out.push(...wrapText(line, wrapWidth))
+  }
+  return out.length === 0 ? [''] : out
+}
+
 /** Inputs of {@link composerFrame}. */
 export interface ComposerInput {
   /** The current draft. */
@@ -140,7 +168,7 @@ export interface ComposerFrame {
 }
 
 /**
- * Render the composer, growing with the draft up to eight rows.
+ * Render the composer, growing with the draft up to {@link COMPOSER_MAX_ROWS} rows.
  *
  * The caret sits at the end of the newest draft row, which is the last row shown,
  * so a `Shift+Enter` break is visible the moment it is typed.
@@ -153,20 +181,22 @@ export function composerFrame(input: ComposerInput, palette: Palette): ComposerF
   const inset = ' '.repeat(COMPOSER_MARGIN)
   const border = palette.paint('│', 'Subtle')
   const content = Math.max(1, inner - 2)
-  const rows = input.draft.split('\n')
   const limit = Math.max(1, input.maxRows ?? COMPOSER_MAX_ROWS)
-  const shown = rows.length <= limit ? rows : rows.slice(rows.length - limit)
-  const hidden = rows.length - shown.length
+  // Wrap every logical line to the composer's width, so a pasted long line folds
+  // into the box instead of being clipped to its tail.
+  const visual = visualRowsOf(input.draft, input.innerWidth)
+  const shown = visual.length <= limit ? visual : visual.slice(visual.length - limit)
+  const hidden = visual.length - shown.length
   const lines: string[] = [`${inset}${palette.paint(composerBorderTop(inner), 'Subtle')}`]
   for (const [index, row] of shown.entries()) {
     const prefix = index === 0 && hidden === 0 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
     // The first visible row says how many rows are above it when the draft outgrew
     // the box: without it a long draft looks like a short one with its head cut.
-    // The marker is taken out of that row's room, so the row still fits the box.
     const marker = index === 0 && hidden > 0 ? `▲ +${String(hidden)} ` : ''
-    const available = Math.max(1, content - 1 - displayWidth(prefix) - displayWidth(marker))
-    const view = composerView(row, available)
-    const body = ` ${palette.paint(prefix, 'Accent')}${palette.paint(marker, 'Subtle')}${palette.paint(view.text, 'Text')}`
+    const text = marker === ''
+      ? row
+      : takeHeadWidth(row, Math.max(1, content - 1 - displayWidth(prefix) - displayWidth(marker)))
+    const body = ` ${palette.paint(prefix, 'Accent')}${palette.paint(marker, 'Subtle')}${palette.paint(text, 'Text')}`
     lines.push(`${inset}${border}${padRight(body, content)}${border}`)
   }
   if (input.showHint) {
@@ -180,9 +210,7 @@ export function composerFrame(input: ComposerInput, palette: Palette): ComposerF
   // The scroll marker shares a row only when that row is the single visible one;
   // otherwise it stands above the caret and takes nothing from its columns.
   const caretMarker = hidden > 0 && shown.length === 1 ? `▲ +${String(hidden)} ` : ''
-  const caretRoom = Math.max(1, content - 1 - displayWidth(lastPrefix) - displayWidth(caretMarker))
-  const caretColumn = COMPOSER_MARGIN + 2 + displayWidth(lastPrefix) + displayWidth(caretMarker)
-    + displayWidth(composerView(last, caretRoom).text)
+  const caretColumn = COMPOSER_MARGIN + 2 + displayWidth(lastPrefix) + displayWidth(caretMarker) + displayWidth(last)
   lines.push(`${inset}${palette.paint(composerBorderBottom(inner, input.status ?? '', input.counters ?? ''), 'Subtle')}`)
   return { lines, cursorRow: 1 + shown.length, cursorColumn: caretColumn + 1 }
 }
@@ -201,27 +229,91 @@ export function composerLines(input: ComposerInput, palette: Palette): readonly 
  * Column of the caret inside the composer, counted from zero for a row cursor.
  * @param draft - the current draft.
  * @param innerWidth - the composer's inner width (`cols - 4`).
- * @returns the zero-based column where the caret renders.
+ * @param maxRows - draft rows the box may show.
+ * @returns the zero-based column where the caret renders at the end of the draft.
  */
 export function composerCursorColumn(draft: string, innerWidth: number, maxRows = COMPOSER_MAX_ROWS): number {
-  const rows = draft.split('\n')
-  const last = rows[rows.length - 1] ?? ''
-  const shown = Math.min(rows.length, Math.max(1, maxRows))
-  const hidden = rows.length - shown
-  const prefix = shown === 1 && hidden === 0 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
-  const marker = hidden > 0 && shown === 1 ? `▲ +${String(hidden)} ` : ''
-  const content = Math.max(1, Math.max(6, innerWidth) - 2)
-  const available = Math.max(1, content - 1 - displayWidth(prefix) - displayWidth(marker))
-  return COMPOSER_MARGIN + 2 + displayWidth(prefix) + displayWidth(marker) + displayWidth(composerView(last, available).text)
+  const visual = visualRowsOf(draft, innerWidth)
+  const limit = Math.max(1, maxRows)
+  const shown = visual.length <= limit ? visual : visual.slice(visual.length - limit)
+  const hidden = visual.length - shown.length
+  const last = shown[shown.length - 1] ?? ''
+  const prefix = shown.length === 1 && hidden === 0 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
+  const marker = hidden > 0 && shown.length === 1 ? `▲ +${String(hidden)} ` : ''
+  return COMPOSER_MARGIN + 2 + displayWidth(prefix) + displayWidth(marker) + displayWidth(last)
 }
 
 /**
  * Row of the caret inside the composer, counted from zero.
  * @param draft - the current draft.
+ * @param innerWidth - the composer's inner width (`cols - 4`).
  * @param maxRows - draft rows the box may show.
- * @returns the zero-based row of the caret, relative to the top border.
+ * @returns the zero-based row of the caret at the end of the draft, relative to the top border.
  */
-export function composerCursorRow(draft: string, maxRows = COMPOSER_MAX_ROWS): number {
-  const rows = draft.split('\n').length
-  return Math.min(rows, Math.max(1, maxRows))
+export function composerCursorRow(draft: string, innerWidth: number, maxRows = COMPOSER_MAX_ROWS): number {
+  const visual = visualRowsOf(draft, innerWidth)
+  return Math.min(visual.length, Math.max(1, maxRows))
+}
+
+/**
+ * Where the caret belongs for a given cursor index.
+ *
+ * The cursor index addresses the draft as UTF-16 code units, so `left`/`right`
+ * move one unit and `slice` inserts exactly where the caret is. The row is
+ * zero-based from the composer's top border (row 0 is the border, row 1 the
+ * first draft row); the column is zero-based from the box's left edge.
+ * @param draft - the current draft.
+ * @param cursor - caret index in the draft, clamped to its length.
+ * @param innerWidth - the composer's inner width (`cols - 4`).
+ * @param maxRows - draft rows the box may show.
+ * @returns the caret position.
+ */
+export function composerCursorPosition(
+  draft: string,
+  cursor: number,
+  innerWidth: number,
+  maxRows = COMPOSER_MAX_ROWS,
+): { readonly row: number; readonly column: number } {
+  const clamped = Math.max(0, Math.min(cursor, draft.length))
+  const before = draft.slice(0, clamped)
+  const logicalLines = draft.split('\n')
+  const lineIndex = Math.max(0, before.split('\n').length - 1)
+  const lineText = logicalLines[lineIndex] ?? ''
+  const charInLine = before.split('\n')[lineIndex]?.length ?? 0
+  const wrapWidth = wrapWidthOf(innerWidth)
+
+  // Visual rows above the cursor's logical line.
+  let rowsAbove = 0
+  for (let i = 0; i < lineIndex; i += 1) {
+    const text = logicalLines[i] ?? ''
+    rowsAbove += text === '' ? 1 : Math.max(1, wrapText(text, wrapWidth).length)
+  }
+  // The cursor's row inside its logical line, and its column there.
+  const wrapped = lineText === '' ? [''] : wrapText(lineText, wrapWidth)
+  const target = displayWidth(lineText.slice(0, charInLine))
+  let accumulated = 0
+  let visualIndex = wrapped.length - 1
+  for (let i = 0; i < wrapped.length; i += 1) {
+    const width = displayWidth(wrapped[i] ?? '')
+    if (target <= accumulated + width) {
+      visualIndex = i
+      break
+    }
+    accumulated += width + 1
+  }
+  const colInVisual = Math.max(0, target - accumulated)
+
+  // Clamp to the visible window (the box scrolls when the draft outgrows it).
+  const limit = Math.max(1, maxRows)
+  const rowInDraft = rowsAbove + visualIndex
+  let totalVisual = 0
+  for (const text of logicalLines) {
+    totalVisual += text === '' ? 1 : Math.max(1, wrapText(text, wrapWidth).length)
+  }
+  const hidden = Math.max(0, totalVisual - limit)
+  const shownRow = Math.max(0, Math.min(rowInDraft - hidden, limit - 1))
+  const prefix = shownRow === 0 && hidden === 0 ? COMPOSER_PREFIX : COMPOSER_CONTINUATION
+  const marker = shownRow === 0 && hidden > 0 ? `▲ +${String(hidden)} ` : ''
+  const column = COMPOSER_MARGIN + 2 + displayWidth(prefix) + displayWidth(marker) + colInVisual
+  return { row: shownRow + 1, column }
 }

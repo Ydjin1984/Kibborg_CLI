@@ -30,11 +30,13 @@ export {
   composerBorderBottom,
   composerBorderTop,
   composerCursorColumn,
+  composerCursorPosition,
   composerCursorRow,
   composerFrame,
   composerLines,
   composerView,
   makeDash,
+  visualRowsOf,
 } from './composer.ts'
 
 export type { RenderSink, ToolCallDetail, ToolResultDetail, TurnRenderer, TurnRendererOptions } from './render.ts'

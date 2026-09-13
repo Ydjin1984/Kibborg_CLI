@@ -31,7 +31,6 @@ import { emptyCompletionSources, fillCompletionSources } from './completion-sour
 import { exportSessionLog } from './export-session.ts'
 import { readIntent } from './intent.ts'
 import { createHeadlessWriter, parseStructured, type OutputFormat } from './headless.ts'
-import { runFullscreen } from './fullscreen.ts'
 import { openPanel, permissionModes, type PanelSession, type PanelState } from './panel.ts'
 import { runRegistryCommand } from './registry-command.ts'
 import { runMcpCommand } from './mcp-command.ts'
@@ -408,33 +407,6 @@ async function run(ctx: Context, client: IApiClient, task: string, intent: Clien
       session: { ctx, client, sessionId, write: chunk => void process.stdout.write(chunk) },
     }
     const surfaceSettings = intent?.screen === undefined ? surface : { ...surface, screen: screenModeOf(intent.screen) }
-    if (surfaceSettings.screen === 'fullscreen') {
-      const fullscreen = await runFullscreen({
-        client,
-        sessionId,
-        state,
-        settings: surfaceSettings,
-        home: dshHome(),
-        sources,
-        fillSources,
-        panel,
-        logbook: journal,
-        onCommand: (line, write) => routeCommand(line, {
-          ctx,
-          client,
-          sessionId,
-          write,
-          state,
-        }, hostLine => hostCommand(ctx, attached, sessionId, hostLine)),
-      })
-      // A terminal that cannot enter the alternate buffer keeps working: the
-      // inline loop is the fallback, never a failure.
-      if (fullscreen !== 'unsupported') {
-        ctx.appExit?.(fullscreen)
-        return
-      }
-      process.stderr.write('kibborg: this terminal cannot enter the alternate screen; staying inline\n')
-    }
     const code = await runInteractive({
       client,
       sessionId,

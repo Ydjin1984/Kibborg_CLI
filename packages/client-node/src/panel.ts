@@ -53,6 +53,8 @@ export interface PanelData {
   readonly skills: readonly ManagedSkillSummaryView[]
   /** MCP server names, in registry order. */
   readonly mcp: readonly { readonly name: string; readonly state: string }[]
+  /** Hook-bridge module names, in Loader order. */
+  readonly hooks: readonly string[]
   /** Permission preset names, in declaration order. */
   readonly permissions: readonly string[]
   /** Plugin module names, in Loader order. */
@@ -86,6 +88,11 @@ function permissionNames(ctx: Context): readonly string[] {
   return presets?.names ?? []
 }
 
+/** Whether a Loader entry is a hook bridge (the Codex or Claude Code dialect). */
+function isHookBridge(entry: PluginEntry): boolean {
+  return entry.moduleName?.includes('dsh-hooks-') === true
+}
+
 /**
  * The permission presets this composition offers.
  *
@@ -112,6 +119,7 @@ function tabsOf(data: PanelData): readonly PanelTab[] {
     detail: server.state,
   })))
   const permissionRows = data.permissions.map(name => `  ${name}`)
+  const hookRows = data.hooks.map(name => `  ${name}`)
   const pluginRows = data.plugins.map(name => `  ${name}`)
   return [
     {
@@ -120,7 +128,11 @@ function tabsOf(data: PanelData): readonly PanelTab[] {
       hint: '[enter] show  [space] enable/disable  [v] versions  [tab] next  [esc] close',
     },
     { name: 'MCP', rows: ['name  state', ...mcpRows], hint: '[tab] next  [esc] close' },
-    { name: 'Hooks', rows: ['  no hook bridges are mounted in this profile'], hint: '[tab] next  [esc] close' },
+    {
+      name: 'Hooks',
+      rows: data.hooks.length === 0 ? ['  no hook bridges are mounted in this profile'] : ['  bridge  state', ...hookRows],
+      hint: '[tab] next  [esc] close',
+    },
     {
       name: 'Plugins',
       rows: ['  module', ...pluginRows],
@@ -147,15 +159,13 @@ export async function openPanel(session: PanelSession): Promise<PanelState> {
   const data: PanelData = {
     skills: skills.managed,
     mcp: servers.map(server => ({ name: server.name, state: server.state })),
+    hooks: pluginEntries(session.ctx)
+      .filter(isHookBridge)
+      .map(entry => `${entry.moduleName ?? '(unnamed)'}  ${entry.enabled === true ? 'enabled' : 'disabled'}  ${entry.fiberPhase ?? ''}`.trimEnd()),
     permissions: permissionNames(session.ctx),
     plugins: pluginEntries(session.ctx).map(entry => `${entry.moduleName ?? '(unnamed)'}  ${entry.enabled === true ? 'enabled' : 'disabled'}  ${entry.fiberPhase ?? ''}`.trimEnd()),
   }
   return { view: { tabs: tabsOf(data), active: 0, selected: 1 }, data }
-}
-
-/** Re-render the tabs after the selection or the active tab moved. */
-export function rerender(state: PanelState, view: PanelView): PanelState {
-  return { view: { ...view, tabs: tabsOf(state.data) }, data: state.data }
 }
 
 /**

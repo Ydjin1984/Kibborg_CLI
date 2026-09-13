@@ -9,7 +9,7 @@
  * @module @kibborg/tui/zone
  */
 
-import { COMPOSER_MAX_ROWS, COMPOSER_RUNNING_HINT, composerCursorColumn, composerCursorRow, composerLines, type ComposerInput } from './composer.ts'
+import { COMPOSER_MAX_ROWS, COMPOSER_RUNNING_HINT, composerCursorPosition, composerLines, type ComposerInput } from './composer.ts'
 import { composerFacts, type StatusInput } from './status.ts'
 import type { Palette } from './tokens.ts'
 
@@ -27,6 +27,8 @@ export interface ZoneState {
   readonly cols: number
   /** Overlay rows drawn above the composer, already formatted. */
   readonly overlay?: readonly string[]
+  /** Caret index in the draft; when set, the caret sits at that index instead of the end. */
+  readonly cursorIndex?: number
   /** Row of the cursor inside the zone (0-based), when the caller places it. */
   readonly cursorRow?: number
   /** Column of the cursor inside the zone, when the caller places it. */
@@ -73,10 +75,9 @@ export function zoneLines(state: ZoneState, palette: Palette): readonly string[]
  */
 export function zoneCursor(state: ZoneState): { readonly row: number; readonly column: number } {
   const overlayRows = state.overlay?.length ?? 0
-  return {
-    row: overlayRows + composerCursorRow(state.draft, COMPOSER_MAX_ROWS),
-    column: composerCursorColumn(state.draft, state.innerWidth),
-  }
+  const cursor = state.cursorIndex ?? state.draft.length
+  const position = composerCursorPosition(state.draft, cursor, state.innerWidth, COMPOSER_MAX_ROWS)
+  return { row: overlayRows + position.row, column: position.column }
 }
 
 /**

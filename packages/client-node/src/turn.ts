@@ -436,8 +436,13 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
   /** When the model started reasoning in the current step, if it is reasoning. */
   let thinkingSince: number | undefined
   let turnsSeen = 0
-  /** When each running tool call started, so its result can report a duration. */
-  const toolStarts = new Map<string, number>()
+  /**
+   * When each running tool call started, keyed by its call id so two concurrent
+   * calls of the same tool do not overwrite each other's duration. The name is
+   * kept beside the time because the result event identifies the call only by
+   * its call id.
+   */
+  const toolStarts = new Map<string, { readonly name: string; readonly startedAt: number }>()
   let pressure: ContextPressure | undefined
   // Who is working: the session the user typed into, and the subagents it
   // delegates to. The tree is read before the prompt so a child's first event
@@ -482,9 +487,10 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
   }
   const finish = (kind: string, errorMessage?: string): TurnOutcome => {
     renderer.closeAnswer()
-    const changed = [...changedPaths(cwd)].filter(path => !changedBefore.has(path))
+    const after = changedPaths(cwd)
+    const changed = [...after].filter(path => !changedBefore.has(path))
     if (renderer.changedFiles !== undefined) renderer.changedFiles(changed)
-    else reportChangedFiles(changedBefore, changedPaths(cwd), options.palette, options.sink)
+    else reportChangedFiles(changedBefore, after, options.palette, options.sink)
     const outcome: TurnOutcome = {
       kind,
       tokens,
@@ -631,7 +637,7 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
         const label = delegationLabel(event.data.arguments)
         if (label !== undefined) agents.hint(label)
       }
-      toolStarts.set(event.data.name, Date.now())
+      toolStarts.set(String(event.data.callId), { name: event.data.name, startedAt: Date.now() })
       const input = prettyArguments(event.data.arguments)
       const change = argumentDiff(event.data.name, event.data.arguments)
       // The row says what the agent is doing; the raw arguments stay behind the
@@ -653,12 +659,14 @@ export async function runTurn(options: TurnOptions): Promise<TurnOutcome> {
       const data = event.data as {
         readonly name?: string
         readonly error?: { readonly name: string }
-        readonly message?: unknown
+        readonly message?: { readonly source?: { readonly callId?: unknown } }
         readonly meta?: unknown
       }
-      const name = data.name ?? 'tool'
-      const startedAt = toolStarts.get(name)
-      toolStarts.delete(name)
+      const callId = data.message?.source?.callId
+      const pending = callId === undefined ? undefined : toolStarts.get(String(callId))
+      if (callId !== undefined) toolStarts.delete(String(callId))
+      const name = pending?.name ?? data.name ?? 'tool'
+      const startedAt = pending?.startedAt
       if (data.error !== undefined) renderer.toolFailure(name, data.error.name)
       else if (renderer.toolDone !== undefined) {
         const detail = resultDiff(data.meta)

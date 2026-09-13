@@ -32,7 +32,7 @@ export const SURFACE_DEFAULTS: SurfaceSettings = {
   // The reference CLIs stamp every message, so a session reads as a timeline.
   timestamps: true,
   multiline: false,
-  screen: 'inline',
+  screen: 'fullscreen',
 }
 
 /** Read one field out of a resolved section, tolerating a foreign type. */

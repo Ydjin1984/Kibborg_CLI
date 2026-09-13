@@ -49,7 +49,7 @@ export const KIBBORG_CLI_DEFAULTS: KibborgCliSettings = {
   theme: 'ice',
   timestamps: true,
   multiline: false,
-  screen: 'inline',
+  screen: 'fullscreen',
 }
 
 /** Namespace key behind the terminal surface's settings section. */
@@ -60,7 +60,7 @@ const kibborgCliSchema: z<KibborgCliSettings> = z.object({
   theme: z.union([...KIBBORG_THEMES]).default('ice'),
   timestamps: z.boolean().default(true),
   multiline: z.boolean().default(false),
-  screen: z.union([...KIBBORG_SCREENS]).default('inline'),
+  screen: z.union([...KIBBORG_SCREENS]).default('fullscreen'),
 })
 
 /**

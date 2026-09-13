@@ -444,7 +444,7 @@ export function parseKiborgArgs(argv: readonly string[], version: string): Kibor
     .action((options: { timeout: string; json?: boolean }) => {
       const seconds = Number(options.timeout)
       if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 60) {
-        program.error(`error: --timeout needs seconds between 0 and 60, got ${JSON.stringify(options.timeout)}`)
+        program.error(`error: --timeout needs seconds greater than 0 and at most 60, got ${JSON.stringify(options.timeout)}`)
       }
       resolved = { mode: 'discover', timeoutMs: Math.round(seconds * 1000), json: options.json === true }
     })
@@ -461,7 +461,13 @@ export function parseKiborgArgs(argv: readonly string[], version: string): Kibor
       const withToken = options.token === undefined || options.token === ''
         ? url
         : (() => {
-          const parsed = new URL(url)
+          let parsed: URL
+          try {
+            parsed = new URL(url)
+          } catch {
+            program.error(`error: attach needs an http(s) URL, got ${JSON.stringify(url)}`)
+            throw new Error('unreachable: program.error exits')
+          }
           parsed.searchParams.set('token', options.token)
           return parsed.toString()
         })()

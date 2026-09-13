@@ -10,7 +10,7 @@
 import { parseKeys, type KeyEvent } from '@kibborg/tui'
 
 /** How long an unterminated sequence is held before it is read as `Escape`. */
-export const ESCAPE_IDLE_MS = 40
+export const ESCAPE_IDLE_MS = 80
 
 /** Escape decoding for one interactive loop. */
 export interface EscapeIdle {

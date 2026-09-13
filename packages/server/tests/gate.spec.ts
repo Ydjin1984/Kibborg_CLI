@@ -50,6 +50,10 @@ describe('createGate', () => {
     expect(gate.admit(request({ authorization: 'Bearer s3cree' }))).toMatchObject({ status: 403 })
   })
 
+  it('refuses a wrong token of a different length', () => {
+    expect(gate.admit(request({ authorization: 'Bearer short' }))).toMatchObject({ status: 403 })
+  })
+
   it('refuses an origin this deployment does not serve', () => {
     expect(gate.admit(request({ authorization: 'Bearer s3cret', origin: 'https://evil.example' })))
       .toMatchObject({ status: 403, reason: 'origin not served' })

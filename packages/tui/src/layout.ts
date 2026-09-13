@@ -57,6 +57,9 @@ const STATUS_MIN_ROWS = 6
 /** Horizontal margin between the terminal edge and inner content. */
 const MARGIN = 4
 
+/** Empty row always kept between the transcript and the composer. */
+const COMPOSER_GAP = 1
+
 /** Clamp a value into an inclusive range. */
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
@@ -92,8 +95,10 @@ export function computeLayout(cols: number, rows: number, options: LayoutRequest
   let composerH = clamp(options.composerHeight, 1, safeRows)
   let statusH = options.showStatus === true && safeRows >= STATUS_MIN_ROWS ? 1 : 0
   let overlayH = clamp(options.overlayHeight ?? 0, 0, safeRows)
+  // The gap is decorative: it is the first thing given up when the frame is short.
+  let gap = COMPOSER_GAP
 
-  let logH = safeRows - headerH - composerH - statusH - overlayH
+  let logH = safeRows - headerH - composerH - statusH - overlayH - gap
   if (logH < 0) {
     let deficit = -logH
     const reduce = (size: number, floor: number): number => {
@@ -101,17 +106,20 @@ export function computeLayout(cols: number, rows: number, options: LayoutRequest
       deficit -= amount
       return amount
     }
+    const gapDrop = Math.min(deficit, gap)
+    gap -= gapDrop
+    deficit -= gapDrop
     overlayH -= reduce(overlayH, 0)
     headerH -= reduce(headerH, 0)
     // The composer keeps its top border, one input row, and its bottom border: a box
     // squeezed to a single row shows two borders and no place to type.
     composerH -= reduce(composerH, Math.min(3, safeRows))
     statusH -= reduce(statusH, 0)
-    logH = 0
+    logH = Math.max(0, safeRows - headerH - composerH - statusH - overlayH - gap)
   }
 
   const logY = headerH
-  const overlayY = logY + logH
+  const overlayY = logY + logH + gap
   const composerY = overlayY + overlayH
   const statusY = safeRows - statusH
 

@@ -436,8 +436,6 @@ export async function listJobs(
 export interface SessionCommandResult {
   /** The process exit code. */
   readonly code: number
-  /** The session the command resolved, when it resolved one. */
-  readonly session?: ResolvedSession
 }
 
 /**
@@ -469,7 +467,7 @@ export async function runSessionCommand(
         process.stderr.write('kibborg: no session to rename\n')
         return { code: 1 }
       }
-      return { code: await renameSession(client, resolved.sessionId, intent.title ?? ''), session: resolved }
+      return { code: await renameSession(client, resolved.sessionId, intent.title ?? '') }
     }
     case 'fork': {
       const resolved = await resolveSession(client, intent.sessionId)
@@ -485,7 +483,7 @@ export async function runSessionCommand(
         process.stderr.write('kibborg: no session to inspect\n')
         return { code: 1 }
       }
-      return { code: await listSubagents(client, resolved.sessionId, { json: intent.json === true }), session: resolved }
+      return { code: await listSubagents(client, resolved.sessionId, { json: intent.json === true }) }
     }
     case 'jobs': {
       const resolved = await resolveSession(client, intent.sessionId)
@@ -493,7 +491,7 @@ export async function runSessionCommand(
         process.stderr.write('kibborg: no session to inspect\n')
         return { code: 1 }
       }
-      return { code: await listJobs(client, resolved.sessionId, { json: intent.json === true }), session: resolved }
+      return { code: await listJobs(client, resolved.sessionId, { json: intent.json === true }) }
     }
     case 'archive': {
       const resolved = await resolveSession(client, intent.sessionId)
@@ -507,22 +505,7 @@ export async function runSessionCommand(
         return { code: 1 }
       }
       process.stdout.write(`  archived ${resolved.sessionId}\n`)
-      return { code: 0, session: resolved }
-    }
-    case 'resume': {
-      const resolved = await resolveSession(client, intent.sessionId)
-      if (resolved === undefined) {
-        process.stderr.write(`kibborg: no session found; run a task first or pass an id\n`)
-        return { code: 1 }
-      }
-      if (intent.fork === true) {
-        const code = await forkSession(client, resolved.sessionId)
-        if (code !== 0) return { code }
-      } else {
-        const code = await printHistory(client, resolved.sessionId)
-        if (code !== 0) return { code }
-      }
-      return { code: 0, session: resolved }
+      return { code: 0 }
     }
     default:
       process.stderr.write(`kibborg: unsupported session command ${intent.kind}\n`)

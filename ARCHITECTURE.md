@@ -61,7 +61,7 @@ TTY:
 
 **R2.** In-process клиент поверх того же Remote-контракта: `InProcessApiClient(toFetchHandler(ctx.apiProxy))`; `WebApiClient` — только для `attach`/remote.
 
-**R3.** Собственный минимальный ANSI-рендер без внешних зависимостей: `inline` по умолчанию, `fullscreen` — по явному `--fullscreen`.
+**R3.** Собственный минимальный ANSI-рендер без внешних зависимостей: одна полноэкранная поверхность `@kibborg/tui` (`App`) — дефолт в терминале; `inline` — scrollback-fallback для не-TTY и `KIBBORG_INLINE=1`; `minimal` — то же, что `inline` (без захвата экрана и анимации).
 
 **R4.** Server, remote и headless входят в первую поставку.
 

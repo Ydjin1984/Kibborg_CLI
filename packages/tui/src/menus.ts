@@ -284,9 +284,7 @@ export function permissionDialog(input: PermissionInput): DialogView {
     lines.push(row('destructive-действие: фокус по умолчанию на [n]', 'Error'))
   }
   lines.push(runs([
-    { text: input.destructive === true ? '[y] once' : '[y] once', token: input.destructive === true ? 'Muted' : 'Accent' },
-    { text: '   ', token: 'Muted' },
-    { text: '[a] always session', token: input.destructive === true ? 'Muted' : 'Accent' },
+    { text: '[y] once', token: input.destructive === true ? 'Muted' : 'Accent' },
     { text: '   ', token: 'Muted' },
     { text: '[n] deny', token: 'Error' },
     { text: '   ', token: 'Muted' },
@@ -311,6 +309,8 @@ export interface QuestionInput {
   readonly multi?: boolean
   /** Options already chosen in multi-select mode. */
   readonly chosen?: readonly number[]
+  /** Free-text answer being typed, shown on the `Свой ответ` row. */
+  readonly typed?: string
 }
 
 /** One answer a question offers, as the box draws it. */
@@ -351,11 +351,12 @@ export function questionDialog(input: QuestionInput): DialogView {
     ]))
   }
   const typing = input.selected === input.options.length
+  const typed = input.typed ?? ''
   lines.push(runs([
     { text: 'z ', token: typing ? 'Accent' : 'Muted' },
     { text: typing ? '(◉) ' : '(○) ', token: typing ? 'Accent' : 'Subtle' },
     { text: 'Свой ответ', token: 'Text', ...(typing ? { bold: true } : {}) },
-    { text: '   наберите текст и нажмите Enter', token: 'Muted', dim: true },
+    { text: typing && typed !== '' ? `   ${typed}` : '   наберите текст и нажмите Enter', token: 'Muted', dim: typing && typed !== '' },
   ]))
   lines.push({ spans: [] })
   lines.push(row(

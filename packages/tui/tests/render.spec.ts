@@ -5,6 +5,7 @@ import {
   COMPOSER_PREFIX,
   composerBorderBottom,
   composerCursorColumn,
+  composerCursorPosition,
   composerFrame,
   composerLines,
   composerView,
@@ -21,6 +22,7 @@ import {
   statusLine,
   takeTailWidth,
   turnFooter,
+  visualRowsOf,
 } from '../src/index.ts'
 
 /** Sink that keeps everything written for assertions. */
@@ -150,7 +152,7 @@ describe('composer', () => {
       COMPOSER_MARGIN + 4 + displayWidth('строка 12'),
     )
     // The marker is visible on the row above and says how much is hidden.
-    expect(frame.lines[1]).toContain('▲ +4')
+    expect(frame.lines[1]).toContain(`▲ +${String(12 - COMPOSER_MAX_ROWS)}`)
   })
 })
 
@@ -200,5 +202,39 @@ describe('turn renderer', () => {
     expect(text).toContain('⚠  provider retry scheduled')
     expect(text).toContain('✗  bash   exit 1')
     expect(text).toContain('✗  turn failed')
+  })
+})
+
+describe('composerCursorPosition', () => {
+  const prefix = COMPOSER_MARGIN + 2 + displayWidth(COMPOSER_PREFIX)
+
+  it('sits on the first row at the prompt on an empty draft', () => {
+    const position = composerCursorPosition('', 0, 80)
+    expect(position.row).toBe(1)
+    expect(position.column).toBe(prefix)
+  })
+
+  it('advances the column as the caret moves through a line', () => {
+    expect(composerCursorPosition('abc', 1, 80).column).toBe(prefix + 1)
+    expect(composerCursorPosition('abc', 3, 80).column).toBe(prefix + 3)
+  })
+
+  it('moves to the second row and its prompt on a line break', () => {
+    const position = composerCursorPosition('ab\ncd', 4, 80)
+    expect(position.row).toBe(2)
+    // The continuation prompt is `COMPOSER_CONTINUATION` (`  `), same width as the prefix.
+    expect(position.column).toBe(prefix + 1)
+  })
+
+  it('clamps a cursor past the end to the last character', () => {
+    const atEnd = composerCursorPosition('abc', 3, 80)
+    const beyond = composerCursorPosition('abc', 99, 80)
+    expect(beyond).toEqual(atEnd)
+  })
+
+  it('wraps a long pasted line into several rows', () => {
+    const rows = visualRowsOf('word '.repeat(40), 30)
+    expect(rows.length).toBeGreaterThan(1)
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(30)
   })
 })

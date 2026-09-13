@@ -187,9 +187,14 @@ export function createScreen(options: ScreenOptions): Screen {
       if (caps.bracketedPaste) sequence += '\u001B[?2004h'
       // Two protocols make a modified Enter visible: the Win32 input mode reports
       // the virtual key and the modifier state, and the kitty keyboard protocol
-      // reports `13;2u` for Shift+Enter. A terminal that supports neither reports
-      // a plain Enter, which is why Ctrl+J stays the portable line break.
-      if (caps.win32Input === true) sequence += '\u001B[>1u\u001B[?9001h'
+      // reports `13;2u` for Shift+Enter. The kitty push is sent on every
+      // interactive terminal, not only on Windows, so a kitty-capable terminal
+      // (WezTerm, recent Windows Terminal, a patched xterm) distinguishes
+      // Shift+Enter even where Win32 input mode is unavailable. A terminal that
+      // supports neither reports a plain Enter, which is why Ctrl+J stays the
+      // portable line break.
+      if (caps.interactive) sequence += '\u001B[>1u'
+      if (caps.win32Input === true) sequence += '\u001B[?9001h'
       if (caps.mouse) sequence += '\u001B[?1000h\u001B[?1002h\u001B[?1006h'
       if (caps.altScreen) sequence += '\u001B[?1049h'
       if (caps.altScreen) sequence += '\u001B[2J\u001B[H'
@@ -203,7 +208,8 @@ export function createScreen(options: ScreenOptions): Screen {
       let sequence = ''
       if (caps.mouse) sequence += '\u001B[?1000l\u001B[?1002l\u001B[?1006l'
       if (caps.bracketedPaste) sequence += '\u001B[?2004l'
-      if (caps.win32Input === true) sequence += '\u001B[?9001l\u001B[<u'
+      if (caps.interactive) sequence += '\u001B[<u'
+      if (caps.win32Input === true) sequence += '\u001B[?9001l'
       sequence += '\u001B[0m'
       if (caps.altScreen) sequence += '\u001B[?1049l'
       sequence += '\u001B[?25h'

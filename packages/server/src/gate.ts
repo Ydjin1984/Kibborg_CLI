@@ -10,17 +10,23 @@
  * @module @kibborg/server/gate
  */
 
-import { timingSafeEqual } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 
 /** Authorities that always count as local, whatever the bind address is. */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost', '0.0.0.0', '::'])
 
-/** Compare two strings without leaking their length-wise agreement in timing. */
+/**
+ * Compare two strings in constant time.
+ *
+ * Both sides are hashed to a fixed 32-byte digest first, so `timingSafeEqual`
+ * always compares equal-length buffers: a length check before the comparison
+ * would leak the token's length through an early return, and the hash also
+ * keeps the raw secret out of the equality walk.
+ */
 function secretEquals(presented: string, expected: string): boolean {
-  const left = Buffer.from(presented, 'utf8')
-  const right = Buffer.from(expected, 'utf8')
-  if (left.length !== right.length) return false
+  const left = createHash('sha256').update(presented).digest()
+  const right = createHash('sha256').update(expected).digest()
   return timingSafeEqual(left, right)
 }
 

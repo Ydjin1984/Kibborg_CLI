@@ -7,6 +7,7 @@ import { decodeSgrMouse, decodeX10Mouse, wheelDelta } from '../src/mouse.ts'
 import { createApp } from '../src/app.ts'
 import { plainPalette } from '../src/tokens.ts'
 import { statusLine } from '../src/status.ts'
+import { COMPOSER_MAX_ROWS } from '../src/composer.ts'
 import { zoneCursor, zoneLines } from '../src/zone.ts'
 import { detectCaps } from '../src/screen.ts'
 import { renderHeader } from '../src/header.ts'
@@ -665,7 +666,7 @@ describe('fullscreen app', () => {
     const text = lines.join('\n')
     // The newest rows are on screen, and the first one says how many are above.
     expect(text).toContain('строка 12')
-    expect(text).toContain('▲ +4')
+    expect(text).toContain(`▲ +${String(12 - COMPOSER_MAX_ROWS)}`)
     // The zone is taller than the four rows a single-line composer needs.
     expect(lines.length).toBeGreaterThan(6)
     const caret = zoneCursor(state)

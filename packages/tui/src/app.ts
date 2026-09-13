@@ -31,7 +31,7 @@ import { renderMenu, type MenuItem, type MenuView, type DialogView } from './men
 import { wheelDelta } from './mouse.ts'
 import { createScreen, type Screen, type TerminalCaps } from './screen.ts'
 import { displayWidth } from './width.ts'
-import { composerBorderBottom, composerBorderTop, COMPOSER_HINT, COMPOSER_PREFIX, COMPOSER_RUNNING_HINT, composerView } from './composer.ts'
+import { composerBorderBottom, composerBorderTop, COMPOSER_HINT, COMPOSER_PREFIX, COMPOSER_RUNNING_HINT, composerCursorPosition, visualRowsOf } from './composer.ts'
 import { composerFacts } from './status.ts'
 import { silentLogbook, type Logbook } from './logbook.ts'
 
@@ -99,6 +99,8 @@ export interface App {
   readonly inWelcome: boolean
   /** Replace the draft. */
   setDraft(text: string): void
+  /** Move the caret to an index inside the draft. */
+  setCursor(index: number): void
   /** Merge status values. */
   setStatus(patch: Partial<AppStatus>): void
   /**
@@ -225,6 +227,8 @@ export function createApp(options: AppOptions): App {
   let status: AppStatus = options.status
   let welcome: WelcomeState | null = options.welcome ?? null
   let draft = ''
+  /** Caret index inside {@link draft}; the composer draws the caret there. */
+  let cursorIndex = 0
   let hint = options.hint ?? COMPOSER_HINT
   let dialog: DialogView | null = null
   let menuItems: readonly MenuItem[] | null = null
@@ -482,7 +486,7 @@ export function createApp(options: AppOptions): App {
     // transcript there is one focus, so the input's caret is hidden.
     const cursor = menuView !== null || dialog !== null || selectedEntry !== null
       ? null
-      : composerCursor(layout.composer, draft)
+      : composerCursor(layout.composer, draft, cursorIndex)
     if (cursor === null) {
       screen.hideCursor()
     } else {
@@ -674,6 +678,11 @@ export function createApp(options: AppOptions): App {
     },
     setDraft(text) {
       draft = text
+      cursorIndex = Math.max(0, Math.min(cursorIndex, text.length))
+      render()
+    },
+    setCursor(index) {
+      cursorIndex = Math.max(0, Math.min(index, draft.length))
       render()
     },
     setStatus(patch) {
@@ -874,14 +883,17 @@ export function createApp(options: AppOptions): App {
           scrollBy(Math.max(1, viewportHeight - 1))
           return
         case 'home':
-          // Home and End read the transcript, not the input history: while a long
-          // answer is on screen they take the view to its head and back.
-          selectedEntry = null
-          scrollBy(-transcriptHeight)
-          return
         case 'end':
+          // With a draft these edit it (start/end of line); on an empty composer
+          // they read the transcript: while a long answer is on screen they take
+          // the view to its head and back.
+          if (draft.trim() !== '') {
+            leaveWelcome()
+            unhandled?.(key)
+            return
+          }
           selectedEntry = null
-          scrollBy(Number.MAX_SAFE_INTEGER)
+          scrollBy(key.kind === 'home' ? -transcriptHeight : Number.MAX_SAFE_INTEGER)
           return
         case 'up':
         case 'down': {
@@ -1074,35 +1086,33 @@ function drawComposer(buf: CellBuffer, rect: Rect, input: ComposerPaint): void {
   const left = rect.x + 2
   const right = left + inner - 1
   const last = rect.y + rect.h - 1
-  const rows = Math.max(1, Math.min(composerRowLimit(rect), input.draft.split('\n').length))
+  const rows = Math.max(1, composerRowLimit(rect))
   // The legend needs a row of its own between the draft and the border; without
   // one it would be painted over the last draft row.
   const hasLegend = rect.h >= 4 && input.hint !== ''
   const legendRow = hasLegend ? last - 1 : -1
   buf.write(left, rect.y, composerBorderTop(inner), 'Subtle')
 
-  // A multi-line draft keeps every line: the prompt marks the first one and the
-  // continuation lines stay aligned under it, so Shift+Enter shows the break the
-  // user just typed instead of scrolling it away. Past the window's limit the
-  // view follows the caret, and the first row says how many lines are above it.
-  const hidden = Math.max(0, input.draft.split('\n').length - rows)
-  const lines = input.draft.split('\n').slice(hidden)
+  // The draft is word-wrapped to the composer's width, so a pasted long line
+  // folds into the box instead of being clipped to its tail. Past the window's
+  // limit the view follows the caret and the first row says how much is above it.
+  const visual = visualRowsOf(input.draft, inner)
+  const shown = visual.length <= rows ? visual : visual.slice(visual.length - rows)
+  const hidden = visual.length - shown.length
   const prefix = COMPOSER_PREFIX
-  for (const [index, line] of lines.entries()) {
+  for (const [index, line] of shown.entries()) {
     const row = rect.y + 1 + index
-    if (row >= rect.y + rows + 1 || row === legendRow) break
+    if (row === legendRow) break
     buf.put(left, row, '│', 'Subtle')
     buf.put(right, row, '│', 'Subtle')
     const marker = index === 0 && hidden > 0 ? `▲ +${String(hidden)} ` : ''
-    const room = inner - 5 - displayWidth(marker)
-    // The last visible row follows the caret; the rows above it keep their head so
-    // the draft reads from its start.
-    const view = index === lines.length - 1 ? composerView(line, room) : { text: takeHead(line, room) }
     const kind = index === 0 && hidden === 0 ? prefix : '  '
-    buf.write(left + 2, row, kind, 'Accent', { bold: !input.running && index === lines.length - 1 })
+    const room = inner - 5 - displayWidth(marker)
+    const text = marker === '' ? line : takeHead(line, Math.max(1, room))
+    buf.write(left + 2, row, kind, 'Accent', { bold: !input.running && index === shown.length - 1 })
     const markerColumn = left + 2 + displayWidth(kind)
     if (marker !== '') buf.write(markerColumn, row, marker, 'Subtle', { dim: true })
-    buf.write(markerColumn + displayWidth(marker), row, view.text, 'Text')
+    buf.write(markerColumn + displayWidth(marker), row, text, 'Text')
   }
 
   if (legendRow > rect.y) {
@@ -1122,20 +1132,13 @@ function composerRowLimit(rect: Rect): number {
 }
 
 /** Where the terminal cursor belongs inside the composer, addressed one-based. */
-function composerCursor(rect: Rect, draft: string): { readonly row: number; readonly col: number } | null {
+function composerCursor(rect: Rect, draft: string, cursorIndex: number): { readonly row: number; readonly col: number } | null {
   if (rect.h <= 0 || rect.w <= 0) return null
   const inner = Math.max(4, rect.w - 4)
-  const lines = draft.split('\n')
-  const total = lines.length
-  const rows = Math.max(1, Math.min(composerRowLimit(rect), total))
-  const hidden = Math.max(0, total - rows)
-  // The scroll marker shares a row only when that row is the single visible one;
-  // otherwise it stands above the caret and takes nothing from its columns.
-  const marker = hidden > 0 && rows === 1 ? `▲ +${String(hidden)} ` : ''
-  const view = composerView(lines[total - 1] ?? '', Math.max(1, inner - 5 - displayWidth(marker)))
-  // The column matches how `drawComposer` lays the prompt, the marker, and the
-  // text; both addresses are one-based, like the terminal's own.
-  return { row: rect.y + rows + 1, col: rect.x + 7 + displayWidth(marker) + displayWidth(view.text) }
+  const position = composerCursorPosition(draft, cursorIndex, inner, composerRowLimit(rect))
+  // `composerCursorPosition` answers in zero-based buffer coordinates; the
+  // terminal's own cursor is one-based, so both are shifted by one.
+  return { row: rect.y + position.row + 1, col: rect.x + position.column + 1 }
 }
 
 /**

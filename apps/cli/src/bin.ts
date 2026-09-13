@@ -67,7 +67,7 @@ switch (invocation.mode) {
     break
   }
   case 'serve': {
-    const { buildServeOverlay, isLoopbackAddress, serveRefusal } = await import('./serve.ts')
+    const { buildServeOverlay, serveRefusal } = await import('./serve.ts')
     const token = invocation.token ?? process.env['KIBBORG_SERVER_TOKEN'] ?? ''
     const refusal = serveRefusal({ ...invocation, ...(token === '' ? {} : { token }) })
     if (refusal !== undefined) {
@@ -86,7 +86,7 @@ switch (invocation.mode) {
       patchFiles: [...invocation.patches, overlayFile],
       args: [],
     })
-    const display = isLoopbackAddress(invocation.host) ? invocation.host : invocation.host
+    const display = invocation.host
     process.stderr.write(`kibborg serve: listening on http://${display}:${String(invocation.port)} (token ${token === '' ? 'not required on loopback' : 'required'})\n`)
     process.stderr.write(`kibborg serve: health http://${display}:${String(invocation.port)}/healthz, api ${invocation.host === '0.0.0.0' ? 'http://<this-host>' : `http://${display}`}:${String(invocation.port)}/api\n`)
     void ctx
