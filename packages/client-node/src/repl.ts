@@ -82,9 +82,9 @@ const KEY_HELP: readonly string[] = [
   'Shift+Tab — сменить режим разрешений, режим виден в нижней границе поля',
   'h / l — свернуть и развернуть выбранную запись',
   'y — скопировать выбранную запись вместе с аргументами и выводом',
-  'PgUp / PgDn — прокрутка на экран, колесо — на строку',
+  'PgUp / PgDn — прокрутка на экран, Home / End — в начало и в конец ленты',
   'Ctrl+C — прервать ход; вне хода очистить черновик, второй раз выйти',
-  'Ctrl+D — выйти, Ctrl+O — панель данных, Ctrl+x — эта справка',
+  'Ctrl+D — выйти, Ctrl+U — очистить строку, Ctrl+x — эта справка',
   'Esc — закрыть список или вопрос; ход не прерывает',
 ]
 
@@ -955,7 +955,12 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
             renderer: createLogRenderer({
               log: app.log,
               onFooter: footer => {
-                app.setStatus({ tokens: footer.tokens })
+                // The finished turn's numbers, cost included, so the composer border
+                // keeps reporting what the session has spent.
+                app.setStatus({
+                  tokens: footer.tokens,
+                  ...(footer.costUsd === undefined ? {} : { costUsd: footer.costUsd }),
+                })
               },
             }),
           }),
@@ -1108,6 +1113,9 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           case 'ctrl-d':
             panel = undefined
             panelStatus = ''
+            // A panel does not own the interrupt while a turn runs: the legend says
+            // Ctrl+C stops the turn, so it does, and the panel closes with it.
+            if (key.kind === 'ctrl-c' && running) cancelTurn()
             return
           default:
             return
@@ -1247,7 +1255,10 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
           // Esc never cancels a turn: it reads the transcript instead, and the
           // composer's legend already names the key that does cancel. A stray Esc
           // must not throw away a running answer.
-          if (running) return
+          if (running) {
+            app?.flash('Ctrl+C — прервать ход')
+            return
+          }
           draft = ''
           return
         case 'enter':

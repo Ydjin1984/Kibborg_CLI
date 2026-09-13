@@ -126,7 +126,7 @@ describe('zone', () => {
     const text = lines.join('\n')
     // The zone has no header, so the border is the only place that can say a turn
     // is running and which key cancels it.
-    expect(text).toContain('Working 4.0s · Agent')
+    expect(text).toContain('Работает 4.0s · Agent')
     expect(text).toContain(COMPOSER_RUNNING_HINT)
     expect(text).not.toContain('model ·')
   })

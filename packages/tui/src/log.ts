@@ -585,7 +585,7 @@ function condense(lines: readonly StyledLine[], entry: LogEntry, width: number):
     spans: [
       { text: INDENT, token: 'Muted' },
       {
-        text: `⋯ ещё ${String(hidden)} ${hidden === 1 ? 'строка' : hidden < 5 ? 'строки' : 'строк'} — клик, чтобы развернуть`,
+        text: `⋯ ещё ${String(hidden)} ${hidden === 1 ? 'строка' : hidden < 5 ? 'строки' : 'строк'} — Enter, чтобы развернуть`,
         token: 'Accent',
       },
     ],
@@ -651,7 +651,7 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
       if (entry.tokens !== undefined && entry.tokens > 0) {
         suffix.push({ text: `  ↓${formatTokens(entry.tokens)}`, token: 'Muted' })
       }
-      if (live) suffix.push({ text: '  [stop]', token: 'Subtle', dim: true })
+      if (live) suffix.push({ text: '  [Ctrl+C]', token: 'Subtle', dim: true })
       return compose(prefix, entry.text, 'Muted', width, { suffix })
     }
     case 'thought': {
@@ -1156,7 +1156,7 @@ export function renderTranscript(
         const marker = fitLine({
           spans: [
             { text: '  │  ', token: 'Subtle' },
-            { text: `⋯ ${String(count)} ${count === 1 ? 'шаг' : 'шагов'} этой ветки — клик, чтобы развернуть`, token: 'ActionDelegate' },
+            { text: `⋯ ${String(count)} ${count === 1 ? 'шаг' : 'шагов'} этой ветки — Enter, чтобы развернуть`, token: 'ActionDelegate' },
           ],
           entryId: target,
           collapsed: true,

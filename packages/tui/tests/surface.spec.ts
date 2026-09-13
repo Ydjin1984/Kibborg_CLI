@@ -248,12 +248,12 @@ describe('transcript rendering', () => {
     expect(running).toContain('♦ Запускает go test ./...')
     expect(running).toContain('24.0s')
     expect(running).toContain('↓34.7k')
-    expect(running).toContain('[stop]')
+    expect(running).toContain('[Ctrl+C]')
     // A finished row reports what the turn did and stops offering the key that would
     // have stopped it.
     log.patch(id, { status: 'ok' })
     const done = renderEntries(log.entries, 100).map(plainText).join('\n')
-    expect(done).not.toContain('[stop]')
+    expect(done).not.toContain('[Ctrl+C]')
     expect(done).toContain('↓34.7k')
   })
 
@@ -882,7 +882,66 @@ describe('fullscreen app', () => {
     app.stop()
   })
 
-  it('hides a long tool output behind a row that expands it on a click', () => {
+  it('lets an open dialog own the reader keys', () => {
+    const { stream, written } = fakeStream(90, 20)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const output = Array.from({ length: 30 }, (_, index) => `строка ${String(index)}`).join('\n')
+    const id = app.log.append({ kind: 'tool', text: 'big.md', name: 'read', status: 'ok', output, title: 'Читает big.md' })
+    app.start()
+    app.handleKey({ kind: 'up' })
+    const handled: string[] = []
+    app.onUnhandled(key => { handled.push(key.kind) })
+    // A question or an approval is the only thing the user can act on, so Enter and
+    // `y` belong to it and must not fold or copy a block behind it.
+    app.setDialog({ token: 'PermLav', label: 'Question 1/1', lines: [{ spans: [] }] })
+    written.length = 0
+    app.handleKey({ kind: 'enter' })
+    app.handleKey({ kind: 'char', text: 'y' })
+    expect(handled).toEqual(['enter', 'char'])
+    expect(app.log.entries.find(entry => entry.id === id)?.expanded).toBeUndefined()
+    app.stop()
+  })
+
+  it('releases the reader mark when its entry disappears', () => {
+    const { stream, written } = fakeStream(90, 20)
+    const app = createApp({
+      stdout: stream,
+      stdin: stream as unknown as NodeJS.ReadStream,
+      palette: plainPalette,
+      version: 'v1.0.0',
+      cwd: '/work',
+      status: { model: 'm', mode: 'Agent', contextPercent: 0 },
+      caps: { altScreen: true, mouse: true, trueColor: false, syncOutput: true, bracketedPaste: true, interactive: true },
+    })
+    const work = app.log.append({ kind: 'stage', text: '', verb: 'Думает', status: 'running' })
+    app.log.append({ kind: 'assistant', text: 'готово' })
+    app.start()
+    // Two steps up: the newest entry first, then the work row above it.
+    app.handleKey({ kind: 'up' })
+    written.length = 0
+    app.handleKey({ kind: 'up' })
+    expect(written.join('')).toContain('▌')
+    expect(written.join('')).toContain('Думает')
+    // The work row is removed when the answer arrives: the mark and the reader's
+    // legend must go with it, or the keys would act on an entry that is gone.
+    app.log.remove(work)
+    written.length = 0
+    app.render()
+    const frame = written.join('')
+    expect(frame).not.toContain('▌')
+    expect(frame).not.toContain('h/l — свернуть/развернуть')
+    app.stop()
+  })
+
+  it('hides a long tool output behind a row that unfolds it', () => {
     const { stream, written } = fakeStream(90, 24)
     const app = createApp({
       stdout: stream,

@@ -372,12 +372,22 @@ export function createApp(options: AppOptions): App {
     ...(status.branch === undefined ? {} : { branch: status.branch }),
     ...(status.dirty === undefined ? {} : { dirty: status.dirty }),
     ...(status.tokens === undefined ? {} : { tokens: status.tokens }),
+    // A modal names itself in the header: while the panel owns the keyboard the row
+    // says so, so the user knows what the surface is waiting on.
+    ...(dialog === null ? {} : { panel: dialog.label }),
   })
 
   /** Whether the palette is open: the draft names a command, or the surface opened it itself. */
   const paletteOpen = (): boolean => menuItems !== null && (menuForced || draft.startsWith('/'))
+  /** Whether the chosen entry still exists; a cleared or removed entry releases the mark. */
+  const selectionAlive = (): boolean =>
+    selectedEntry !== null && log.entries.some(entry => entry.id === selectedEntry)
+
   const render = (): void => {
     if (stopped) return
+    // The mark belongs to an entry: when `/new` clears the transcript, or the work
+    // row is removed at the end of a turn, the reader's focus has nothing to act on.
+    if (!selectionAlive()) selectedEntry = null
     const cols = screen.cols
     const rows = screen.rows
     const density = densityFor(cols)
@@ -448,7 +458,7 @@ export function createApp(options: AppOptions): App {
     // useful keys are the ones that stop it or read the transcript, and an empty
     // legend falls back to the surface's own key list.
     const legend = running
-      ? COMPOSER_RUNNING_HINT
+      ? selectedEntry === null ? COMPOSER_RUNNING_HINT : `${COMPOSER_RUNNING_HINT}   ${READER_HINT}`
       : selectedEntry !== null ? READER_HINT : hint === '' ? COMPOSER_HINT : hint
     drawComposer(buf, layout.composer, { draft, hint: legend, running, status: facts.status, counters: facts.counters })
     paintSelection(buf)
@@ -456,8 +466,11 @@ export function createApp(options: AppOptions): App {
     screen.present(buf)
     // The caret is placed after every frame, not only when it moved: painting the
     // frame moves the terminal's own caret to the last cell it wrote, which during
-    // a turn is the border the elapsed time changes in.
-    const cursor = menuView !== null || dialog !== null ? null : composerCursor(layout.composer, draft)
+    // a turn is the border the elapsed time changes in. With the reader in the
+    // transcript there is one focus, so the input's caret is hidden.
+    const cursor = menuView !== null || dialog !== null || selectedEntry !== null
+      ? null
+      : composerCursor(layout.composer, draft)
     if (cursor === null) {
       screen.hideCursor()
     } else {
@@ -754,6 +767,16 @@ export function createApp(options: AppOptions): App {
         case 'page-down':
           scrollBy(Math.max(1, viewportHeight - 1))
           return
+        case 'home':
+          // Home and End read the transcript, not the input history: while a long
+          // answer is on screen they take the view to its head and back.
+          selectedEntry = null
+          scrollBy(-transcriptHeight)
+          return
+        case 'end':
+          selectedEntry = null
+          scrollBy(Number.MAX_SAFE_INTEGER)
+          return
         case 'up':
         case 'down': {
           // A box that moves its own highlight owns the arrows: sending them on
@@ -801,9 +824,10 @@ export function createApp(options: AppOptions): App {
           return
         }
         case 'enter': {
-          // Enter opens the entry the reader moved to. With no entry chosen the
-          // key belongs to the loop, which submits the draft.
-          if (draft.trim() === '' && selectedEntry !== null) {
+          // An open dialog owns Enter: a question has to be answered, not a block
+          // unfolded behind it. With no entry chosen the key belongs to the loop,
+          // which submits the draft.
+          if (dialog === null && draft.trim() === '' && selectedEntry !== null) {
             toggleSelected()
             return
           }
@@ -814,12 +838,13 @@ export function createApp(options: AppOptions): App {
         case 'char': {
           // While the reader is in the transcript, `h`/`l` fold and unfold the
           // chosen entry and `y` copies it. Anything else starts a draft, and a
-          // draft means the reader is done with the transcript.
-          if (key.text === 'y' && draft === '' && selectedEntry !== null) {
+          // draft means the reader is done with the transcript. An open dialog
+          // keeps its keys: it is the only thing the user can act on.
+          if (dialog === null && key.text === 'y' && draft === '' && selectedEntry !== null) {
             copySelected()
             return
           }
-          if (draft === '' && selectedEntry !== null && (key.text === 'h' || key.text === 'l')) {
+          if (dialog === null && draft === '' && selectedEntry !== null && (key.text === 'h' || key.text === 'l')) {
             log.patch(selectedEntry, { expanded: key.text === 'l' })
             render()
             return

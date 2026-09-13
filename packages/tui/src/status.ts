@@ -112,12 +112,14 @@ export function formatTokens(count: number): string {
 export function composerFacts(input: StatusInput): { readonly status: string; readonly counters: string } {
   const running = input.running === true || input.spinner !== undefined
   const lead = running
-    ? `Working${input.turnSeconds === undefined ? '' : ` ${elapsedLabel(input.turnSeconds * 1000)}`}`
+    ? `Работает${input.turnSeconds === undefined ? '' : ` ${elapsedLabel(input.turnSeconds * 1000)}`}`
     : input.model
   const counters: string[] = []
   if (input.agents !== undefined) counters.push(`${String(input.agents)} ${plural(input.agents, 'агент', 'агента', 'агентов')}`)
   if (input.tasks !== undefined && input.tasks > 0) counters.push(`${String(input.tasks)} ${plural(input.tasks, 'задача', 'задачи', 'задач')}`)
-  if (input.cols >= 76 && input.tokens !== undefined) counters.push(`${formatTokens(input.tokens)} tok`)
+  // The turn's own tokens are reported by the work row while it runs; the border
+  // keeps the finished turn's numbers, and never mixes the two.
+  if (!running && input.cols >= 76 && input.tokens !== undefined) counters.push(`${formatTokens(input.tokens)} tok`)
   if (input.cols >= 92 && input.turnSeconds !== undefined && !running) counters.push(`${input.turnSeconds.toFixed(1)}s`)
   if (input.cols >= 110 && input.costUsd !== undefined) counters.push(`$${input.costUsd.toFixed(2)}`)
   return { status: `${lead} · ${input.mode}`, counters: counters.join(' · ') }

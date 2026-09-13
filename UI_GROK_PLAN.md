@@ -94,9 +94,20 @@
 
 | ID | Статус | Задача | Артефакт | Проверка |
 |---|---|---|---|---|
-| 5.1 | todo | Юнит-тесты новых компонентов (лента, статус, палитра, клавиши) | `packages/tui/tests/*`, `packages/client-node/tests/*` | `pnpm run test` |
-| 5.2 | todo | PTY-кадры на каждый этап | `Kibborg_CLI/tests/*` | `frame-render`, `ref-probe` |
-| 5.3 | todo | README, CHANGELOG, TASKS.md по факту изменений | `Kibborg_CLI/*.md` | `pnpm run lint`, ревью |
+| 5.1 | **done** | Юнит-тесты новых компонентов (лента, рамка, палитра, клавиши, строка работы, размышления) | `packages/tui/tests/*`, `packages/client-node/tests/*` | `pnpm run test` — 286 тестов |
+| 5.2 | **done** | PTY-кадры на каждый этап: `pty-frame`, `pty-menu`, `pty-commands`, `pty-fullscreen` | `Kibborg_CLI/tests/*` | все четыре сценария проходят |
+| 5.3 | **done** | README, CHANGELOG, TASKS.md по факту изменений | `Kibborg_CLI/*.md` | `pnpm run lint`, ревью Grok CLI |
+
+---
+
+## Известный остаток
+
+Основная поверхность (`kibborg` без флагов, `createApp`) получила всё перечисленное. Два второстепенных режима отстают, и это зафиксировано, а не забыто:
+
+1. `--fullscreen` (`packages/client-node/src/fullscreen.ts`) рисует свою ленту строками: строка места и рамка ввода там есть, выбора записи, строки работы и блока размышлений нет.
+2. `KIBBORG_INLINE=1` (`packages/tui/src/zone.ts`) рисует ту же рамку, но без шапки: доля контекста и ветка переехали в счётчики нижней границы, выбора записи нет.
+
+Оба режима остаются рабочими, но не совпадают с основной поверхностью по возможностям.
 
 ---
 
