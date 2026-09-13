@@ -24,3 +24,5 @@ coverage/
 .idea/
 .DS_Store
 Thumbs.db
+tests/ref-*.txt
+tests/grok-sandbox.txt
