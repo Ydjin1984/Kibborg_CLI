@@ -17,11 +17,20 @@ export interface EscapeIdle {
   /**
    * Decode one raw chunk, carrying over an incomplete sequence tail.
    * @param chunk - bytes read from stdin, decoded as UTF-8.
-   * @returns the keys this chunk completed, in input order.
+   * @returns the keys this chunk completed, in input order, and the report fragments
+   * that were dropped as damaged terminal noise.
    */
-  push(chunk: string): readonly KeyEvent[]
+  push(chunk: string): EscapeIdlePush
   /** Cancel the idle timer; call when the loop stops reading input. */
   stop(): void
+}
+
+/** The keys one chunk completed, plus every fragment dropped as terminal noise. */
+export interface EscapeIdlePush {
+  /** Keys decoded from this chunk, in input order. */
+  readonly keys: readonly KeyEvent[]
+  /** Terminal reports dropped because their escape byte was lost, if any. */
+  readonly noise?: readonly string[]
 }
 
 /**
@@ -38,7 +47,7 @@ export function createEscapeIdle(onEscape: () => void): EscapeIdle {
     pending = ''
   }
   return {
-    push(chunk: string): readonly KeyEvent[] {
+    push(chunk: string): EscapeIdlePush {
       if (timer !== undefined) {
         clearTimeout(timer)
         timer = undefined
@@ -56,7 +65,7 @@ export function createEscapeIdle(onEscape: () => void): EscapeIdle {
           onEscape()
         }, ESCAPE_IDLE_MS)
       }
-      return parsed.keys
+      return parsed.noise === undefined ? { keys: parsed.keys } : { keys: parsed.keys, noise: parsed.noise }
     },
     stop,
   }

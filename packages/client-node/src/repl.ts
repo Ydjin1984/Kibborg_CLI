@@ -1516,7 +1516,14 @@ export async function runInteractive(options: ReplOptions): Promise<number> {
     }
 
     function onData(chunk: Buffer): void {
-      deliver(escapeIdle.push(chunk.toString('utf8')))
+      const parsed = escapeIdle.push(chunk.toString('utf8'))
+      if (parsed.noise !== undefined && logbook.enabled('info')) {
+        // A damaged report is worth knowing about: it is what a paste leaves behind when
+        // the terminal cuts its burst of key reports across two reads, and dropping it is
+        // the difference between a clean draft and `[13;28;13;1;0;1_` typed into it.
+        logbook.write({ level: 'info', scope: 'input', action: 'noise', ok: true, details: { fragments: parsed.noise } })
+      }
+      deliver(parsed.keys)
       if (app !== undefined || (!running && !commandBusy)) drawZone()
     }
 

@@ -45,7 +45,72 @@ export interface KeyParseResult {
   readonly keys: readonly KeyEvent[]
   /** Bytes of a sequence that continues in the next chunk, or an empty string. */
   readonly pending: string
+  /**
+   * Terminal sequences that were recognised as such and dropped.
+   *
+   * A terminal may send an escape sequence whose leading `ESC` was lost — a paste or
+   * a burst of hardware key reports cut across two reads — and the rest of it would
+   * otherwise be typed into the draft as text. Such fragments are recognised by their
+   * shape, dropped, and reported here so the journal can say they happened.
+   */
+  readonly noise?: readonly string[]
 }
+
+/** The six fields of a win32-input-mode report whose leading escape byte was lost. */
+const ORPHAN_WIN32 = /^\[\d*(?:;\d+){4,}_/
+
+/** An SGR mouse report whose leading escape byte was lost. */
+const ORPHAN_MOUSE = /^\[<\d+(?:;\d+)*[Mm]/
+
+/** A terminal sequence tail recognised without its escape byte. */
+interface OrphanTail {
+  /** How many characters of the chunk the tail occupies. */
+  readonly length: number
+  /** Journal label naming the tail. */
+  readonly noise: string
+  /** A character recovered from the tail, when the tail repeats a paste. */
+  readonly key?: KeyEvent
+}
+
+/**
+ * Recognise a terminal report whose escape byte was lost.
+ *
+ * A Windows terminal in win32-input-mode reports one sequence per key, and a paste
+ * delivers a burst of them; when the burst is cut across two reads the escape byte can
+ * be consumed as a lone `Escape` while the rest of the report still arrives, which is
+ * what typed `[13;28;13;1;0;1_` into the composer. Only shapes that decode to a key are
+ * recognised, so pasted text such as `[0;30m` keeps reaching the draft unchanged.
+ * @param rest - the chunk from the offending `[` onwards.
+ * @returns the length, journal label, and any recovered character, or `undefined` when
+ * the text is not a report tail.
+ */
+function orphanTail(rest: string): OrphanTail | undefined {
+  const win32 = ORPHAN_WIN32.exec(rest)
+  if (win32 !== null) {
+    const body = win32[0]
+    const decoded = decodeWin32(body.slice(1, -1).split(';').map(part => Number.parseInt(part, 10)))
+    // Only a character is recovered: a paste arrives as one report per character, while
+    // a report for a control key would act on a key the user may never have pressed.
+    return {
+      length: body.length,
+      noise: `orphan-win32:${body}`,
+      ...(decoded?.kind === 'char' ? { key: decoded } : {}),
+    }
+  }
+  const mouse = ORPHAN_MOUSE.exec(rest)
+  if (mouse !== null) return { length: mouse[0].length, noise: `orphan-mouse:${mouse[0]}` }
+  let cursor = 1
+  while (cursor < rest.length && (rest[cursor] ?? '').charCodeAt(0) < 0x40) cursor += 1
+  if (cursor >= rest.length) return undefined
+  const body = rest.slice(1, cursor + 1)
+  if (body === '200~' || body === '201~') return { length: body.length + 1, noise: `orphan-paste:${body}` }
+  const key = body === '13u'
+    ? { kind: 'enter' } as const
+    : body === '13;2u' ? { kind: 'newline' } as const : decodeCsi(body)
+  if (key === undefined) return undefined
+  return { length: body.length + 1, noise: `orphan-csi:${body}` }
+}
+
 
 /** Escape byte beginning every control sequence. */
 const ESC = '\u001B'
@@ -137,7 +202,14 @@ function decodeWin32(fields: readonly number[]): KeyEvent | undefined {
  */
 export function parseKeys(chunk: string): KeyParseResult {
   const keys: KeyEvent[] = []
+  const noise: string[] = []
   let index = 0
+  // A bracketed paste already carried the characters, so the key reports a Windows
+  // terminal sends for the same characters in the same read would type them twice.
+  let pasted = false
+  /** Result for a chunk that ends inside a sequence, carrying the tail to the next read. */
+  const incomplete = (pending: string): KeyParseResult =>
+    ({ keys, pending, ...(noise.length === 0 ? {} : { noise }) })
   while (index < chunk.length) {
     const character = chunk[index]
     /* v8 ignore next -- the loop guard keeps the index inside the chunk */
@@ -148,18 +220,19 @@ export function parseKeys(chunk: string): KeyParseResult {
       const pasteStart = rest.indexOf(`${ESC}[200~`)
       if (pasteStart === 0) {
         const end = rest.indexOf(`${ESC}[201~`)
-        if (end === -1) return { keys, pending: rest }
+        if (end === -1) return incomplete(rest)
         keys.push({ kind: 'paste', text: rest.slice(6, end) })
+        pasted = true
         index += end + 6
         continue
       }
-      if (rest.length === 1) return { keys, pending: rest }
+      if (rest.length === 1) return incomplete(rest)
       // SGR mouse reporting: ESC [ < button ; column ; row M|m. The report is
       // consumed here so a click never reaches the composer as text.
       if (rest.startsWith(`${ESC}[<`)) {
         let cursor = 3
         while (cursor < rest.length && rest[cursor] !== 'M' && rest[cursor] !== 'm') cursor += 1
-        if (cursor >= rest.length) return { keys, pending: rest }
+        if (cursor >= rest.length) return incomplete(rest)
         const event = decodeSgrMouse(rest.slice(2, cursor + 1))
         if (event !== null) keys.push({ kind: 'mouse', event })
         index += cursor + 1
@@ -168,7 +241,7 @@ export function parseKeys(chunk: string): KeyParseResult {
       // Legacy X10 reporting: ESC [ M followed by three bytes, still the encoding
       // a classic conhost window sends.
       if (rest.startsWith(`${ESC}[M`)) {
-        if (rest.length < 6) return { keys, pending: rest }
+        if (rest.length < 6) return incomplete(rest)
         const event = decodeX10Mouse(rest.slice(3, 6))
         if (event !== null) keys.push({ kind: 'mouse', event })
         index += 6
@@ -178,7 +251,7 @@ export function parseKeys(chunk: string): KeyParseResult {
         // CSI: find the final byte (0x40–0x7E) that terminates the sequence.
         let cursor = 2
         while (cursor < rest.length && (rest[cursor] ?? '').charCodeAt(0) < 0x40) cursor += 1
-        if (cursor >= rest.length) return { keys, pending: rest }
+        if (cursor >= rest.length) return incomplete(rest)
         const body = rest.slice(2, cursor + 1)
         // Win32 input mode (`ESC[Vk;Sc;Uc;Kd;Cs;Rc_`) carries the virtual key,
         // the unicode code point, and the modifier bits, which is how a Windows
@@ -186,7 +259,11 @@ export function parseKeys(chunk: string): KeyParseResult {
         // from a plain Enter.
         if (body.endsWith('_')) {
           const decoded = decodeWin32(body.split(';').map(part => Number.parseInt(part.replace('_', ''), 10)))
-          if (decoded !== undefined) keys.push(decoded)
+          // The characters of a paste were already delivered as text: the key report
+          // for the same character is the terminal saying it twice.
+          const duplicate = pasted && decoded?.kind === 'char'
+          if (decoded !== undefined && !duplicate) keys.push(decoded)
+          if (duplicate) noise.push(`paste-duplicate:${body}`)
           index += cursor + 1
           continue
         }
@@ -203,6 +280,23 @@ export function parseKeys(chunk: string): KeyParseResult {
       keys.push({ kind: 'escape' })
       index += 1
       continue
+    }
+
+    // A fragment of a terminal report whose escape byte was lost, which is what a
+    // paste leaves behind when a Windows terminal cuts its burst of key reports across
+    // two reads: typing it into the draft is what put `[13;28;13;1;0;1_` in the composer.
+    if (character === '[') {
+      const rest = chunk.slice(index)
+      const orphan = orphanTail(rest)
+      if (orphan !== undefined) {
+        // A character repeats a paste that was already delivered as text, so it is
+        // dropped with the rest of the tail; every tail is reported as noise.
+        const duplicate = pasted && orphan.key !== undefined
+        if (orphan.key !== undefined && !duplicate) keys.push(orphan.key)
+        noise.push(duplicate ? `paste-duplicate:${orphan.noise}` : orphan.noise)
+        index += orphan.length
+        continue
+      }
     }
 
     const code = character.charCodeAt(0)
@@ -224,7 +318,7 @@ export function parseKeys(chunk: string): KeyParseResult {
     }
     index += 1
   }
-  return { keys, pending: '' }
+  return { keys, pending: '', ...(noise.length === 0 ? {} : { noise }) }
 }
 
 /**

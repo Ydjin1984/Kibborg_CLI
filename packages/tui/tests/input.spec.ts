@@ -58,6 +58,40 @@ describe('parseKeys', () => {
     expect(unfinished.keys).toEqual([])
     expect(unfinished.pending).toContain('partial')
   })
+
+  it('drops report tails whose escape byte was lost', () => {
+    // A Windows terminal reports one sequence per key and a paste delivers a burst, so a
+    // read boundary that swallows an escape byte leaves the rest of the report behind.
+    // Typing it into the draft is what put `[13;28;13;1;0;1_` in the composer.
+    const enter = parseKeys('[13;28;13;1;0;1_')
+    expect(enter.keys).toEqual([])
+    expect(enter.noise).toEqual(['orphan-win32:[13;28;13;1;0;1_'])
+    // An escape byte reported as a key of its own arrives with an empty virtual key.
+    expect(parseKeys('[;0;27;1;0;1_').noise).toEqual(['orphan-win32:[;0;27;1;0;1_'])
+    expect(parseKeys('[A').noise).toEqual(['orphan-csi:A'])
+    expect(parseKeys('[201~').noise).toEqual(['orphan-paste:201~'])
+    expect(parseKeys('[<0;10;5M').noise).toEqual(['orphan-mouse:[<0;10;5M'])
+  })
+
+  it('recovers pasted characters from a tail and keeps real text', () => {
+    // A character report repeats a paste the terminal already sent as key reports, so the
+    // character is worth recovering; a report for a control key is not, because acting on
+    // a key the user never pressed is worse than losing it.
+    expect(parseKeys('[4;20;116;1;0;1_').keys).toEqual([{ kind: 'char', text: 't' }])
+    const afterPaste = parseKeys('\u001B[200~test\u001B[201~[4;20;116;1;0;1_')
+    expect(afterPaste.keys).toEqual([{ kind: 'paste', text: 'test' }])
+    expect(afterPaste.noise).toEqual(['paste-duplicate:orphan-win32:[4;20;116;1;0;1_'])
+    // Only a report is noise: text that merely starts with a bracket still reaches the draft.
+    expect(parseKeys('[0;30m').keys).toEqual([
+      { kind: 'char', text: '[' },
+      { kind: 'char', text: '0' },
+      { kind: 'char', text: ';' },
+      { kind: 'char', text: '3' },
+      { kind: 'char', text: '0' },
+      { kind: 'char', text: 'm' },
+    ])
+    expect(parseKeys('[0;30m').noise).toBeUndefined()
+  })
 })
 
 describe('history', () => {

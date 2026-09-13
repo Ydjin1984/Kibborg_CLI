@@ -880,7 +880,13 @@ export async function runFullscreen(session: FullscreenSession): Promise<number 
     if (exitCode !== undefined) finish(exitCode)
   })
   const onInput = screen.onInput((chunk: string) => {
-    for (const key of escapeIdle.push(chunk)) {
+    const parsed = escapeIdle.push(chunk)
+    if (parsed.noise !== undefined && journal.enabled('info')) {
+      // A damaged report is worth knowing about: it is what a paste leaves behind when
+      // the terminal cuts its burst of key reports across two reads.
+      journal.write({ level: 'info', scope: 'input', action: 'noise', ok: true, details: { fragments: parsed.noise } })
+    }
+    for (const key of parsed.keys) {
       handle(key)
       if (exitCode !== undefined) break
     }
