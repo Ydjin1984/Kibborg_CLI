@@ -132,7 +132,17 @@ export function detectCaps(out: { readonly isTTY?: boolean }, env: NodeJS.Proces
      */
     mouse: interactive && (env['KIBBORG_MOUSE'] ?? '') !== '',
     trueColor,
-    syncOutput: interactive,
+    /**
+     * Synchronized output (DEC 2026) is opt-in.
+     *
+     * Wrapping a frame diff in `ESC[?2026h … ESC[?2026l` asks the terminal to
+     * batch the update atomically, which prevents mid-frame tear. Not every
+     * Windows terminal honours it: one that half-supports the sequence can
+     * flicker or leave stale glyph tails instead of clearing a row. It is off by
+     * default and enabled with `KIBBORG_SYNC_OUTPUT=1` on a terminal known to
+     * support it.
+     */
+    syncOutput: interactive && (env['KIBBORG_SYNC_OUTPUT'] ?? '') === '1',
     bracketedPaste: interactive,
     interactive,
     win32Input: interactive && (env['OS'] ?? '') === 'Windows_NT' && (env['KIBBORG_NO_WIN32_INPUT'] ?? '') === '',

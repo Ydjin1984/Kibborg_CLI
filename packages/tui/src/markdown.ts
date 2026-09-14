@@ -50,6 +50,52 @@ const LINK = /^\[([^\]]+)\]\(([^)\s]+)\)$/u
 /** Whether a token is a path the terminal can open. */
 const PATH_LIKE = /(?:^|[\s("'`])((?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|\/)[^\s"'`|]+|[A-Za-z0-9_.-]+[\\/][^\s"'`|]+)/u
 
+/** Language keywords painted as such inside fenced code. */
+const KEYWORDS = new Set([
+  'const', 'let', 'var', 'function', 'return', 'if', 'else', 'for', 'while',
+  'do', 'switch', 'case', 'break', 'continue', 'import', 'export', 'from',
+  'await', 'async', 'class', 'new', 'extends', 'try', 'catch', 'finally',
+  'throw', 'def', 'lambda', 'type', 'interface', 'enum', 'public', 'private',
+  'readonly', 'static', 'true', 'false', 'null', 'undefined', 'this', 'super',
+  'in', 'of', 'void', 'typeof', 'and', 'or', 'not', 'None', 'True', 'False',
+])
+
+/**
+ * Highlight one line of fenced code into styled spans.
+ *
+ * The highlighter is deliberately small: it colors line comments, string
+ * literals, numbers, and a fixed keyword set. It is not a language parser —
+ * anything it does not recognise keeps the plain code color, so a wrong guess
+ * costs one color, never the code's text.
+ * @param line - one line of the code block.
+ * @param language - the fence language, which chooses the comment marker.
+ * @returns the styled spans.
+ */
+function highlightCode(line: string, language: string): Span[] {
+  const hashComment = ['py', 'python', 'sh', 'bash', 'ps1', 'pwsh', 'yaml', 'yml', 'toml', 'rb', 'pl'].includes(language)
+  const comment = hashComment ? '#[^\n]*' : '//[^\n]*'
+  const tokenRe = new RegExp(
+    `(${comment}|'(?:[^'\\\\]|\\\\.)*'|"(?:[^"\\\\]|\\\\.)*"|\`(?:[^\`\\\\]|\\\\.)*\`|\\b\\d+(?:\\.\\d+)?\\b|\\b[A-Za-z_$][A-Za-z0-9_$]*\\b)`,
+    'gu',
+  )
+  const spans: Span[] = []
+  let cursor = 0
+  for (const match of line.matchAll(tokenRe)) {
+    const found = match[0]
+    const start = match.index ?? 0
+    if (start > cursor) spans.push({ text: line.slice(cursor, start), token: 'Shimmer' })
+    cursor = start + found.length
+    const first = found[0] ?? ''
+    if (first === '/' || first === '#') spans.push({ text: found, token: 'Muted', dim: true })
+    else if (first === "'" || first === '"' || first === '`') spans.push({ text: found, token: 'Success' })
+    else if (/^\d/u.test(found)) spans.push({ text: found, token: 'Warn' })
+    else if (KEYWORDS.has(found)) spans.push({ text: found, token: 'Accent', bold: true })
+    else spans.push({ text: found, token: 'Shimmer' })
+  }
+  if (cursor < line.length) spans.push({ text: line.slice(cursor), token: 'Shimmer' })
+  return spans
+}
+
 /** The visible text of a line, ignoring its styles. */
 function plain(line: StyledLine): string {
   return line.spans.map(span => span.text).join('')
@@ -158,9 +204,10 @@ function table(rows: readonly TableRow[], options: MarkdownOptions): StyledLine[
       const fitted = displayWidth(cell) > (widths[index] ?? 1) ? takeHeadWidth(cell, widths[index] ?? 1) : cell
       const padding = ' '.repeat(Math.max(0, (widths[index] ?? 1) - displayWidth(fitted)))
       const header = rowIndex === 0
-      spans.push(...inline(fitted, options, header ? 'Text' : options.textToken ?? 'Text').map(span => header ? { ...span, bold: true } : span))
-      // Every cell is padded to its column width, so the separator lands in the
-      // same position on every row — that alignment is what makes it a table.
+      // A cell is painted verbatim (no inline markdown): `inline()` would drop
+      // the `**`/`` ` `` markers, so the visible width would no longer equal the
+      // measured width and every `│` after that cell would shift. Alignment wins.
+      spans.push({ text: fitted, token: header ? 'Text' : options.textToken ?? 'Text', ...(header ? { bold: true } : {}) })
       spans.push({ text: padding, token: 'Subtle' })
       if (index < columns - 1) spans.push({ text: ' │ ', token: 'Subtle' })
     }
@@ -243,9 +290,10 @@ export function renderMarkdown(text: string, options: MarkdownOptions): StyledLi
     }
     if (insideFence) {
       // Code is set apart: a rail keeps it visually inside the block, and the
-      // text keeps its own color so it never reads as prose.
+      // body is highlighted so a keyword, a string, and a comment read as such
+      // instead of one undifferentiated run.
       for (const piece of wrapText(line === '' ? ' ' : line, Math.max(1, options.width - 4))) {
-        lines.push({ spans: [{ text: '  │ ', token: 'Subtle' }, { text: piece, token: 'Shimmer' }] })
+        lines.push({ spans: [{ text: '  │ ', token: 'Subtle' }, ...highlightCode(piece, fenceLanguage)] })
       }
       continue
     }

@@ -87,4 +87,25 @@ describe('renderMarkdown', () => {
     for (const line of lines) expect(line.length).toBeLessThanOrEqual(40)
     expect(lines.join(' ')).toContain('слово слово')
   })
+
+  it('keeps a table aligned when a cell carries inline code markers', () => {
+    const text = ['| Файл | Статус |', '|---|---|', '| `a.md` | OK |', '| `b.md` | Ошибка |'].join('\n')
+    const lines = rows(text)
+    const separator = (line: string): number => line.indexOf('│')
+    // The `│` must land in the same column on every row, even though the first
+    // column contains backtick markers that inline parsing would have dropped.
+    expect(separator(lines[0] ?? '')).toBe(separator(lines[2] ?? ''))
+    expect(separator(lines[0] ?? '')).toBe(separator(lines[3] ?? ''))
+  })
+
+  it('highlights fenced code: keywords bold, comments dim, strings colored', () => {
+    const rendered = renderMarkdown('```ts\nconst answer = "ok" // note\n```', { width: 60 })
+    const spans = rendered.flatMap(line => line.spans)
+    const keyword = spans.find(span => span.text === 'const')
+    expect(keyword?.bold).toBe(true)
+    const comment = spans.find(span => span.text.includes('// note'))
+    expect(comment?.dim).toBe(true)
+    const string = spans.find(span => span.text.includes('"ok"'))
+    expect(string?.token).toBe('Success')
+  })
 })
