@@ -271,7 +271,7 @@ export function formatPanelSnapshot(snapshot: PanelSnapshot, panel: PanelName): 
       if (!Array.isArray(list) || list.length === 0) return ['no todos']
       return list.map(entry => {
         const record = (entry ?? {}) as Record<string, unknown>
-        const mark = record['status'] === 'completed' ? '✓' : record['status'] === 'in_progress' ? '▸' : '·'
+        const mark = record['status'] === 'completed' ? '✔️' : record['status'] === 'in_progress' ? '▸' : '·'
         return `${mark} ${String(record['content'] ?? record['text'] ?? '')}`
       })
     }

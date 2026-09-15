@@ -63,7 +63,7 @@ describe('formatPanelSnapshot', () => {
   it('renders the goal and the todo list with status marks', () => {
     expect(formatPanelSnapshot(snapshot, 'goals').join('')).toContain('ship K7')
     const todos = formatPanelSnapshot(snapshot, 'todos').join('\n')
-    expect(todos).toContain('✓ panels data')
+    expect(todos).toContain('✔️ panels data')
     expect(todos).toContain('▸ wire renderer')
     expect(todos).toContain('· docs')
   })

@@ -76,7 +76,7 @@ if (asked) {
   term.write(`${answer}\r`)
   await sleep(2000)
 }
-await waitFor('✓', 120000)
+await waitFor('✔️', 120000)
 term.write('\u0004')
 await sleep(2000)
 term.kill()

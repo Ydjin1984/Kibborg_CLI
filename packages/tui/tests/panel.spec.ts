@@ -4,8 +4,8 @@ import { plainPalette } from '../src/tokens.ts'
 
 const view: PanelView = {
   tabs: [
-    { name: 'Skills', rows: ['name', '✓ tdd', '· other'], hint: '[enter] show' },
-    { name: 'MCP', rows: ['name', '✓ context7'], hint: '[tab] next' },
+    { name: 'Skills', rows: ['name', '✔️ tdd', '· other'], hint: '[enter] show' },
+    { name: 'MCP', rows: ['name', '✔️ context7'], hint: '[tab] next' },
   ],
   active: 0,
   selected: 1,
@@ -25,7 +25,7 @@ describe('panelLines', () => {
   it('marks the selected row and keeps the header row unpainted', () => {
     const lines = panelLines(view, { palette: plainPalette, cols: 80 }).join('\n')
 
-    expect(lines).toContain('▸ ✓ tdd')
+    expect(lines).toContain('▸ ✔️ tdd')
     expect(lines).toContain('· other')
   })
 
@@ -77,11 +77,11 @@ describe('moveTab', () => {
 describe('columns', () => {
   it('pads names to one column', () => {
     const rows = columns([
-      { mark: '✓', name: 'a', detail: 'one' },
+      { mark: '✔️', name: 'a', detail: 'one' },
       { mark: '·', name: 'longer', detail: 'two' },
     ])
 
-    expect(rows[0]).toBe('✓ a       one')
+    expect(rows[0]).toBe('✔️ a       one')
     expect(rows[1]).toBe('· longer  two')
   })
 })

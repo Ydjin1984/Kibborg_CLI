@@ -556,7 +556,7 @@ function actionMark(
   if (entry.status === 'running') return { glyph: options.runningGlyph ?? '◐', token: 'ActionTool' }
   if (FILE_TOOLS.includes(name)) return { glyph: '▣', token: 'ActionFile' }
   if (THINK_TOOLS.includes(name)) return { glyph: '◌', token: 'ActionThink' }
-  return { glyph: '✓', token: 'Success' }
+  return { glyph: '✔️', token: 'Success' }
 }
 
 /**
@@ -737,7 +737,7 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
         const state: Span[] = [
           { text: `${done ? '✔ DONE' : '◐ WORKING'} `, token: done ? 'Success' : 'ActionDelegate' },
         ]
-        const head: Span[] = [{ text: `${lead}  ${done ? '└─ ✓' : '┌─ ◐'}`, token: done ? 'Success' : 'ActionDelegate' }]
+        const head: Span[] = [{ text: `${lead}  ${done ? '└─ ✔️' : '┌─ ◐'}`, token: done ? 'Success' : 'ActionDelegate' }]
         // The name, the model, and the role are fitted into what the frame has
         // left, so the row keeps its corners on a narrow terminal instead of being
         // cut by the region.
@@ -771,7 +771,7 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
           ? lines.map(line => ({ ...line, entryId: entry.id, collapsed: true }))
           : lines
       }
-      const glyph = done ? '✓' : '◆'
+      const glyph = done ? '✔️' : '◆'
       const branch = INDENT
       const spans: Span[] = [
         { text: branch, token: 'Subtle' },
@@ -867,7 +867,7 @@ function renderEntry(entry: LogEntry, width: number, options: RenderOptions): St
       const meta = entry.meta ?? ''
       const spans: Span[] = [
         { text: INDENT, token: 'Muted' },
-        { text: '✓', token: 'Success' },
+        { text: '✔️', token: 'Success' },
         { text: '  ', token: 'Muted' },
         { text: entry.text, token: 'Text' },
       ]

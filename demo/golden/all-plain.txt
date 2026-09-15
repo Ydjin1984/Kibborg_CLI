@@ -46,11 +46,11 @@
 
     ✳  Scanning…  4.2s   esc interrupt   12.4k tok
 
-    ✓  read     README.md
-    ✓  read     package.json
+    ✔️  read     README.md
+    ✔️  read     package.json
     ⚙  search   src/**  auth
        ⎿  14 files · 3 matches in src/auth/jwt.ts
-    ✓  read     src/auth/jwt.ts
+    ✔️  read     src/auth/jwt.ts
 
   Planning
     1. Inspect project
@@ -163,8 +163,8 @@
   Один модал на все расширения (K4.7)
 
   ┌ Kibborg ─ [Skills] MCP Hooks Plugins Permissions ──────────────────────────┐
-  │   ✓ security-review        model-invocable   v3                            │
-  │   ✓ graphify               user-invocable    v5                            │
+  │   ✔️ security-review        model-invocable   v3                            │
+  │   ✔️ graphify               user-invocable    v5                            │
   │   · tunerpro-xdf-engineer  manual            v2                            │
   │                                                                            │
   │ [enter] открыть  [space] enable/disable  [v] версии                        │
@@ -196,7 +196,7 @@
   ctx 18%  ▓▓░░░░░░░░   ctx 47%  ▓▓▓▓▓░░░░░   ctx 86%  ▓▓▓▓▓▓▓▓▓░
 
   Footer завершённого хода (K2.6):
-  ✓  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11
+  ✔️  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11
 
   ────────────────────────────────────────────────────────────────────────────────
   [11/14] fullscreen — Fullscreen: панели (display-width)  (K7.1/K7.2)
@@ -209,7 +209,7 @@
   │ Sessions          │ Conversation                                │ Context            │
   │ ▸ 8f31 Auth       │ You: проанализируй проект                   │ system 6%          │
   │   a91c Scan       │ ✳ Scanning… 4.2s  12.4k tok                 │ tools 9%           │
-  │   c0e2 Pay        │   ✓ read README.md                          │ chat 3%            │
+  │   c0e2 Pay        │   ✔️ read README.md                          │ chat 3%            │
   │                   │   ⚙ search src/** auth                      │ ────────           │
   │                   │       ⎿ 3 matches in jwt.ts                 │ 18%                │
   ├────────────────────┴──────────────────────────────────────────────┴────────────────────┤
@@ -272,14 +272,14 @@
   You   · demo replay: текст не уходит в LLM
   проанализируй auth и покажи проблемы
     ✳  Scanning…  1.2s   4.1k tok
-    ✓  read     src/auth/jwt.ts
+    ✔️  read     src/auth/jwt.ts
        ⎿  1 file · 214 lines
     ⚙  search   verifyRefresh
        ⎿  3 matches in src/auth/jwt.ts
 
   Planning
-    1. Inspect project   ✓
-    2. Read manifests   ✓
+    1. Inspect project   ✔️
+    2. Read manifests   ✔️
     3. Scan auth flow  ←
 
   /mo█

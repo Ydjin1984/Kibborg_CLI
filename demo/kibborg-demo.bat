@@ -498,11 +498,11 @@ function Show-Session {
     Blank
     Out-Line ('  ' + (Format-Spin '✳' 'Scanning' '4.2s   esc interrupt   12.4k tok'))
     Blank
-    Out-Line ('    ' + (T Success '✓') + '  ' + (T Muted 'read') + '     ' + (T Text 'README.md'))
-    Out-Line ('    ' + (T Success '✓') + '  ' + (T Muted 'read') + '     ' + (T Text 'package.json'))
+    Out-Line ('    ' + (T Success '✔️') + '  ' + (T Muted 'read') + '     ' + (T Text 'README.md'))
+    Out-Line ('    ' + (T Success '✔️') + '  ' + (T Muted 'read') + '     ' + (T Text 'package.json'))
     Out-Line ('    ' + (T Accent '⚙') + '  ' + (T Muted 'search') + '   ' + (T Text 'src/**  auth'))
     Out-Line ('       ' + (T Subtle '⎿') + '  ' + (T Muted '14 files · 3 matches in src/auth/jwt.ts'))
-    Out-Line ('    ' + (T Success '✓') + '  ' + (T Muted 'read') + '     ' + (T Text 'src/auth/jwt.ts'))
+    Out-Line ('    ' + (T Success '✔️') + '  ' + (T Muted 'read') + '     ' + (T Text 'src/auth/jwt.ts'))
     Blank
     Out-Line ('  ' + (T Warn 'Planning'))
     Out-Line ('    ' + (T Text '1. Inspect project'))
@@ -697,8 +697,8 @@ function Show-Modal {
     if ($fill -lt 1) { $fill = 1 }
     Out-Line ('  ' + (T Subtle '┌') + (T Muted $l) + $tabs + ' ' + (T Subtle ('─' * $fill)) + (T Subtle '┐'))
     $rows = @(
-        ('  ' + (T Success '✓') + ' security-review        ' + (T Muted 'model-invocable   v3')),
-        ('  ' + (T Success '✓') + ' graphify               ' + (T Muted 'user-invocable    v5')),
+        ('  ' + (T Success '✔️') + ' security-review        ' + (T Muted 'model-invocable   v3')),
+        ('  ' + (T Success '✔️') + ' graphify               ' + (T Muted 'user-invocable    v5')),
         ('  ' + (T Muted '·') + ' tunerpro-xdf-engineer  ' + (T Muted 'manual            v2')),
         '',
         ((T Muted '[enter] открыть  [space] enable/disable  [v] версии')),
@@ -729,7 +729,7 @@ function Show-Status {
     Out-Line ('  ' + (T Muted 'ctx 18%  ') + (Bar10 18) + (T Muted '   ctx 47%  ') + (Bar10 47) + (T Muted '   ctx 86%  ') + (Bar10 86))
     Blank
     Out-Line ('  ' + (T Muted 'Footer завершённого хода (K2.6):'))
-    Out-Line ('  ' + (T Success '✓') + '  ' + (T Text '14.1k tok') + (T Subtle ' · ') + (T Muted '$0.07') + (T Subtle ' · ') + (T Muted '18.4s') + (T Subtle ' · ') + (T Muted '6 tools') + (T Subtle ' · ') + (T Success '+82') + (T Error '/-11'))
+    Out-Line ('  ' + (T Success '✔️') + '  ' + (T Text '14.1k tok') + (T Subtle ' · ') + (T Muted '$0.07') + (T Subtle ' · ') + (T Muted '18.4s') + (T Subtle ' · ') + (T Muted '6 tools') + (T Subtle ' · ') + (T Success '+82') + (T Error '/-11'))
     Blank
 }
 
@@ -745,7 +745,7 @@ function Show-Fullscreen {
     $rows = @(
         @('▸ 8f31 Auth', 'You: проанализируй проект', 'system 6%'),
         @('  a91c Scan', '✳ Scanning… 4.2s  12.4k tok', 'tools 9%'),
-        @('  c0e2 Pay', '  ✓ read README.md', 'chat 3%'),
+        @('  c0e2 Pay', '  ✔️ read README.md', 'chat 3%'),
         @('', '  ⚙ search src/** auth', '────────'),
         @('', '      ⎿ 3 matches in jwt.ts', '18%')
     )
@@ -842,14 +842,14 @@ function Show-LiveScripted {
     Out-Line ('  ' + (T Muted 'You') + (T Muted '   · demo replay: текст не уходит в LLM'))
     Out-Line ('  ' + (T Text 'проанализируй auth и покажи проблемы'))
     Out-Line ('  ' + (Format-Spin '✳' 'Scanning' '1.2s   4.1k tok'))
-    Out-Line ('    ' + (T Success '✓') + '  ' + (T Muted 'read') + '     ' + (T Text 'src/auth/jwt.ts'))
+    Out-Line ('    ' + (T Success '✔️') + '  ' + (T Muted 'read') + '     ' + (T Text 'src/auth/jwt.ts'))
     Out-Line ('       ' + (T Subtle '⎿') + '  ' + (T Muted '1 file · 214 lines'))
     Out-Line ('    ' + (T Accent '⚙') + '  ' + (T Muted 'search') + '   ' + (T Text 'verifyRefresh'))
     Out-Line ('       ' + (T Subtle '⎿') + '  ' + (T Muted '3 matches in src/auth/jwt.ts'))
     Blank
     Out-Line ('  ' + (T Warn 'Planning'))
-    Out-Line ('    ' + (T Text '1. Inspect project') + '   ' + (T Success '✓'))
-    Out-Line ('    ' + (T Text '2. Read manifests') + '   ' + (T Success '✓'))
+    Out-Line ('    ' + (T Text '1. Inspect project') + '   ' + (T Success '✔️'))
+    Out-Line ('    ' + (T Text '2. Read manifests') + '   ' + (T Success '✔️'))
     Out-Line ('    ' + (T Text '3. Scan auth flow') + '  ' + (T Accent '←'))
     Blank
     Out-Line ('  ' + (T Text '/mo') + (T Accent '█'))
@@ -885,7 +885,7 @@ function Start-LiveInteractive {
         @(
             @{ Kind = 'you'; Text = 'проанализируй auth и покажи проблемы' },
             @{ Kind = 'spin'; Verb = 'Scanning'; Meta = '1.2s   4.1k tok' },
-            @{ Kind = 'tool'; Mark = '✓'; Color = 'Success'; Name = 'read'; Arg = 'src/auth/jwt.ts' },
+            @{ Kind = 'tool'; Mark = '✔️'; Color = 'Success'; Name = 'read'; Arg = 'src/auth/jwt.ts' },
             @{ Kind = 'note'; Text = '1 file · 214 lines' },
             @{ Kind = 'tool'; Mark = '⚙'; Color = 'Accent'; Name = 'search'; Arg = 'verifyRefresh' },
             @{ Kind = 'note'; Text = '3 matches in src/auth/jwt.ts' },
@@ -896,7 +896,7 @@ function Start-LiveInteractive {
         @(
             @{ Kind = 'you'; Text = 'покажи diff по jwt.ts' },
             @{ Kind = 'spin'; Verb = 'Reading'; Meta = '0.6s   1.1k tok' },
-            @{ Kind = 'tool'; Mark = '✓'; Color = 'Success'; Name = 'read'; Arg = 'src/auth/jwt.ts' },
+            @{ Kind = 'tool'; Mark = '✔️'; Color = 'Success'; Name = 'read'; Arg = 'src/auth/jwt.ts' },
             @{ Kind = 'diff'; Add = '+ verifyRefresh()'; Del = '- // TODO refresh' },
             @{ Kind = 'answer'; Text = 'Готово: ротация токена добавлена, TODO убран.' },
             @{ Kind = 'footer'; Tok = '9.8k tok'; Cost = '$0.03'; Time = '4.2s'; Tools = '2 tools'; Diff = '+12/-2' }
@@ -1108,7 +1108,7 @@ function Start-LiveInteractive {
                     }
                     'answer' { $out += ''; $out += ('  ' + (T Text $it.Text)) }
                     'footer' {
-                        $out += ('  ' + (T Success '✓') + '  ' + (T Text $it.Tok) + (T Subtle ' · ') + (T Muted $it.Cost) + (T Subtle ' · ') + (T Muted $it.Time) + (T Subtle ' · ') + (T Muted $it.Tools) + (T Subtle ' · ') + (T Success $it.Diff))
+                        $out += ('  ' + (T Success '✔️') + '  ' + (T Text $it.Tok) + (T Subtle ' · ') + (T Muted $it.Cost) + (T Subtle ' · ') + (T Muted $it.Time) + (T Subtle ' · ') + (T Muted $it.Tools) + (T Subtle ' · ') + (T Success $it.Diff))
                     }
                 }
             }

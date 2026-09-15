@@ -264,7 +264,7 @@ describe('transcript rendering', () => {
     log.append({ kind: 'tool', text: 'x', name: 'grep', status: 'fail', title: 'Ищет строки' })
     const lines = renderEntries(log.entries, 80, { runningGlyph: '✳' })
     const tokens = lines.flatMap(line => line.spans.map(span => span.text))
-    expect(tokens).toContain('✓')
+    expect(tokens).toContain('✔️')
     expect(tokens).toContain('✕')
     // The word, not the tool name, is what the row says.
     expect(tokens).toContain('Ищет строки')

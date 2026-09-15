@@ -24,7 +24,7 @@
 |---|---|---|
 | `Accent` | `#5CE1E6` | бренд, активный режим, рамка edit/write, полоса контекста |
 | `Shimmer` | `#9AF0F3` | кадры спиннера этапа, волна band |
-| `Success` | `#3DDC97` | `✓` завершённый инструмент, `+` в diff |
+| `Success` | `#3DDC97` | `✔️` завершённый инструмент, `+` в diff |
 | `Warn` | `#F5B942` | plan, ожидание, `⚠` нотис лимита, рамка сетевых действий |
 | `Error` | `#FF5C7A` | `deny`, `✗` сбой, `-` в diff, рамка destructive-действий |
 | `Muted` | `#7A8494` | chrome, подсказки, горячие клавиши, второстепенный текст |
@@ -115,11 +115,11 @@ Figlet — только здесь, только при first-run и `cols ≥ 7
 
   ✳  Scanning…  4.2s   esc interrupt   12.4k tok
 
-    ✓  read     README.md
-    ✓  read     package.json
+    ✔️  read     README.md
+    ✔️  read     package.json
     ⚙  search   src/**  auth
        ⎿  14 files · 3 matches in src/auth/jwt.ts
-    ✓  read     src/auth/jwt.ts
+    ✔️  read     src/auth/jwt.ts
 
   Planning
     1. Inspect project
@@ -138,7 +138,7 @@ Figlet — только здесь, только при first-run и `cols ≥ 7
 Обязательные приёмы:
 
 - **Спиннер этапа** — кадры `· ✢ ✳ ✶ ✻ ✽` цвета `Shimmer` + живой глагол (`Scanning`, `Reading`, `Wiring`, `Hunting`) + elapsed + токены + `esc`. Глагол отражает этап, а не «thinking», потому что скрытых рассуждений в выводе нет (R10).
-- **Тул-строки без фона**, плоские: `✓` (`Success`) / `⚙` (`Accent`, выполняется) / `✗` (`Error`). Непрерывные вызовы группируются продолжением `⎿`, а не отдельным блоком на каждый файл.
+- **Тул-строки без фона**, плоские: `✔️` (`Success`) / `⚙` (`Accent`, выполняется) / `✗` (`Error`). Непрерывные вызовы группируются продолжением `⎿`, а не отдельным блоком на каждый файл.
 - **Рамку получают только bash/edit/write-вызовы** (shell — `BashPink`, edit — `Accent`) и permission-диалог.
 - **Сообщение пользователя** — sticky-заголовок `You`, без рамки и без фона; `Surface` используется только там, где нужен явный блок кода.
 - **Plan — интерактивный виджет**, а не текст в ленте: `[e] edit`, `[enter] execute`, `[esc] discard`.
@@ -246,8 +246,8 @@ Overlay занимает строки **над** composer: палитра не �
 
 ```
   ┌ Kibborg ─ [Skills] MCP Hooks Plugins Permissions ─────┐
-  │  ✓ security-review        model-invocable   v3        │
-  │  ✓ graphify               user-invocable    v5        │
+  │  ✔️ security-review        model-invocable   v3        │
+  │  ✔️ graphify               user-invocable    v5        │
   │  · tunerpro-xdf-engineer  manual            v2        │
   │                                                       │
   │  [enter] открыть  [space] enable/disable  [v] версии  │
@@ -266,7 +266,7 @@ Overlay занимает строки **над** composer: палитра не �
 Footer завершённого хода — как в референсах, чтобы стоимость и объём правок были видны по факту:
 
 ```
-  ✓  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11
+  ✔️  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11
 ```
 
 ### 4.11 Fullscreen (K7, дефолт в терминале)
@@ -279,7 +279,7 @@ Alt-screen, панели, ресайз. Аварийный plain-режим и �
   ┌ Sessions ─────┬ Conversation ──────────────────────────┬ Context ─┐
   │ ▸ 8f31 Auth   │ You: проанализируй проект             │ system 6%│
   │   a91c Scan   │ ✳ Scanning… 4.2s   12.4k tok          │ tools 9% │
-  │   c0e2 Pay    │   ✓ read README.md                    │ chat 3%  │
+  │   c0e2 Pay    │   ✔️ read README.md                    │ chat 3%  │
   │               │   ⚙ search src/** auth                │ ──────── │
   │               │       ⎿ 3 matches in jwt.ts           │ 18%      │
   ├───────────────┴───────────────────────────────────────┴──────────┤

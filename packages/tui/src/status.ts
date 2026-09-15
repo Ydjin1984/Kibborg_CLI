@@ -187,12 +187,12 @@ export interface FooterInput {
  * Compose the footer of a finished turn.
  * @param input - the turn's measurements; absent values are omitted.
  * @param palette - the active palette.
- * @returns one line: `✓  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11`.
+ * @returns one line: `✔️  14.1k tok · $0.07 · 18.4s · 6 tools · +82/-11`.
  */
 export function turnFooter(input: FooterInput, palette: Palette): string {
   const separator = palette.paint(' · ', 'Subtle')
   const parts: string[] = [
-    `${palette.paint('✓', 'Success')}  ${palette.paint(`${formatTokens(input.tokens)} tok`, 'Text')}`,
+    `${palette.paint('✔️', 'Success')}  ${palette.paint(`${formatTokens(input.tokens)} tok`, 'Text')}`,
   ]
   if (input.costUsd !== undefined) parts.push(palette.paint(`$${input.costUsd.toFixed(2)}`, 'Muted'))
   if (input.seconds !== undefined) parts.push(palette.paint(`${input.seconds.toFixed(1)}s`, 'Muted'))

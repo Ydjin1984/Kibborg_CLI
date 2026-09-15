@@ -29,7 +29,7 @@ describe('renderSessionHistory', () => {
     expect(text).toContain('read')
     expect(text).toContain('README.md')
     expect(text).toContain('  готово')
-    expect(text).toContain('✓')
+    expect(text).toContain('✔️')
     expect(text).toContain('10.0s')
   })
 

@@ -51,7 +51,7 @@ tool-call smoke pipe: ok/fail
 
 ## K1 — Vertical slice в CLI + inline-рендер
 
-Статус: **выполнен полностью** (2026-09-11). Проверено: одноразовый режим и режим stdin из каталога вне репозитория; интерактивная сессия — PTY-smoke `node Kibborg_CLI/tests/pty-smoke.mjs` (транскрипт содержит `You`, ответ, footer `✓  31.6k tok · 29.0s · 0 tools` и статус-строку, артефактов перерисовки нет); 17 unit-тестов (`pnpm --dir Kibborg_CLI test`); golden демо — `ok`; `oxlint Kibborg_CLI` — 0 ошибок.
+Статус: **выполнен полностью** (2026-09-11). Проверено: одноразовый режим и режим stdin из каталога вне репозитория; интерактивная сессия — PTY-smoke `node Kibborg_CLI/tests/pty-smoke.mjs` (транскрипт содержит `You`, ответ, footer `✔️  31.6k tok · 29.0s · 0 tools` и статус-строку, артефактов перерисовки нет); 17 unit-тестов (`pnpm --dir Kibborg_CLI test`); golden демо — `ok`; `oxlint Kibborg_CLI` — 0 ошибок.
 
 - [ ] Рендер соответствует `UI.md`: токены темы (§2), геометрия и display-width (§3), лента и тул-строки (§4.3), статус-строка (§4.10).
 - [ ] Замороженное демо не разошлось со спекой — проверка: `Kibborg_CLI\demo\kibborg-demo.bat check`, ожидание `golden ok`.
@@ -173,22 +173,22 @@ tool-call smoke pipe: ok/fail
 
 | Capability | Web | CLI (TUI) | Server | Headless |
 |---|---|---|---|---|
-| Agent loop + tools | ✓ | ✓ | ✓ | ✓ |
-| Sessions / resume / fork / rename / archive / search | ✓ | ✓ | ✓ | ограниченно |
-| Approvals | ✓ | ✓ | ✓ | deny + exit 3, либо `--auto/--yolo/--permission-mode` |
-| Questions | ✓ | ✓ | ✓ | `--question-answers` иначе exit 3 |
-| Plan + review | ✓ | ✓ | ✓ | `--plan` / JSON |
-| MCP / skills / jobs / subagents / workflow | ✓ | ✓ | ✓ | ✓ |
-| Skill manager (benchmark/versions) | ✓ | ✓ | ✓ | CLI-подкоманды |
-| Goals / todos / queue | ✓ | ✓ | ✓ | цель через флаг |
-| Models / credentials / settings | ✓ | ✓ | ✓ (loopback-pin) | ✓ (env/флаги) |
-| Diff / изменённые файлы | ✓ | ✓ | ✓ у attach-клиента | JSON-список |
-| Vision / вложения | ✓ | путь + маркер (+делегирование субагенту) | ✓ | путь |
-| Code Mode (`run_code`) | ✓ | ✓ (`DSH_TOOLS_MODE=code\|both`) | ✓ | ✓ |
-| Message feedback (Like/Dislike) | ✓ | ✓ (`/like` `/dislike`) | ✓ (локально) | — |
+| Agent loop + tools | ✔️ | ✔️ | ✔️ | ✔️ |
+| Sessions / resume / fork / rename / archive / search | ✔️ | ✔️ | ✔️ | ограниченно |
+| Approvals | ✔️ | ✔️ | ✔️ | deny + exit 3, либо `--auto/--yolo/--permission-mode` |
+| Questions | ✔️ | ✔️ | ✔️ | `--question-answers` иначе exit 3 |
+| Plan + review | ✔️ | ✔️ | ✔️ | `--plan` / JSON |
+| MCP / skills / jobs / subagents / workflow | ✔️ | ✔️ | ✔️ | ✔️ |
+| Skill manager (benchmark/versions) | ✔️ | ✔️ | ✔️ | CLI-подкоманды |
+| Goals / todos / queue | ✔️ | ✔️ | ✔️ | цель через флаг |
+| Models / credentials / settings | ✔️ | ✔️ | ✔️ (loopback-pin) | ✔️ (env/флаги) |
+| Diff / изменённые файлы | ✔️ | ✔️ | ✔️ у attach-клиента | JSON-список |
+| Vision / вложения | ✔️ | путь + маркер (+делегирование субагенту) | ✔️ | путь |
+| Code Mode (`run_code`) | ✔️ | ✔️ (`DSH_TOOLS_MODE=code\|both`) | ✔️ | ✔️ |
+| Message feedback (Like/Dislike) | ✔️ | ✔️ (`/like` `/dislike`) | ✔️ (локально) | — |
 | Streaming | WS | ANSI/plain | WS | stream-json |
-| Fullscreen TUI | — | ✓ (K7) | — | — |
-| Оркестратор (executor-модель) | ✓ | ✓ | ✓ | ✓ |
+| Fullscreen TUI | — | ✔️ (K7) | — | — |
+| Оркестратор (executor-модель) | ✔️ | ✔️ | ✔️ | ✔️ |
 
 ## Паритет с референсами
 

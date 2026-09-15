@@ -109,12 +109,12 @@ export function permissionModes(ctx: Context): readonly string[] {
 /** Build every tab from the registries; the renderer draws only the active one. */
 function tabsOf(data: PanelData): readonly PanelTab[] {
   const skillRows = columns(data.skills.map(skill => ({
-    mark: skill.enabled ? '✓' : '·',
+    mark: skill.enabled ? '✔️' : '·',
     name: skill.name,
     detail: `${skill.scope} · ${skill.status} · v${String(skill.versionsCount)}${skill.invocation.modelInvocable ? '' : ' · user-only'}`,
   })))
   const mcpRows = columns(data.mcp.map(server => ({
-    mark: server.state === 'connected' ? '✓' : '·',
+    mark: server.state === 'connected' ? '✔️' : '·',
     name: server.name,
     detail: server.state,
   })))

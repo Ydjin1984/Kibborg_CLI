@@ -80,7 +80,7 @@ describe('status line', () => {
 describe('turn footer', () => {
   it('reports what the turn measured', () => {
     expect(turnFooter({ tokens: 12400, costUsd: 0.07, seconds: 18.4, tools: 6, added: 82, removed: 11 }, plainPalette))
-      .toBe('  ✓  12.4k tok · $0.07 · 18.4s · 6 tools · +82/-11')
+      .toBe('  ✔️  12.4k tok · $0.07 · 18.4s · 6 tools · +82/-11')
     expect(formatTokens(980)).toBe('980')
     expect(formatTokens(1_200_000)).toBe('1.2M')
   })
@@ -186,7 +186,7 @@ describe('turn renderer', () => {
     expect(text).toMatch(/  > привет {2}\d\d:\d\d:\d\d/u)
     expect(text).toContain('⚙  read   README.md')
     expect(text).toContain('  первая строка')
-    expect(text).toContain('✓  1.2k tok · 1.5s · 1 tools')
+    expect(text).toContain('✔️  1.2k tok · 1.5s · 1 tools')
     expect(text).toContain('  m · ctx 10%')
     expect('reasoning' in renderer).toBe(false)
     expect(renderer.toolCount()).toBe(1)

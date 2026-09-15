@@ -353,20 +353,20 @@ K8 Distro/tests/docs     → установка, гейты, документа�
 
 | Capability | Web | CLI (TUI) | Server | Headless |
 |---|---|---|---|---|
-| Agent loop + tools | ✓ | ✓ | ✓ | ✓ |
-| Sessions / resume / fork / rename / archive / search | ✓ | ✓ | ✓ | ограниченно |
-| Approvals | ✓ | ✓ | ✓ | deny + exit 3, либо `--auto/--yolo/--permission-mode` |
-| Questions | ✓ | ✓ | ✓ | `--question-answers` иначе exit 3 |
-| Plan + review | ✓ | ✓ | ✓ | `--plan` / JSON |
-| MCP / skills / jobs / subagents / workflow | ✓ | ✓ | ✓ | ✓ |
-| Skill manager (benchmark/versions) | ✓ | ✓ | ✓ | CLI-подкоманды |
-| Goals / todos / queue | ✓ | ✓ | ✓ | цель через флаг |
-| Models / credentials / settings | ✓ | ✓ | ✓ (loopback-pin) | ✓ (env/флаги) |
-| Diff / изменённые файлы | ✓ | ✓ | **✓ у attach-клиента** | JSON-список |
-| Vision / вложения | ✓ | путь + маркер (+делегирование субагенту) | ✓ | путь |
+| Agent loop + tools | ✔️ | ✔️ | ✔️ | ✔️ |
+| Sessions / resume / fork / rename / archive / search | ✔️ | ✔️ | ✔️ | ограниченно |
+| Approvals | ✔️ | ✔️ | ✔️ | deny + exit 3, либо `--auto/--yolo/--permission-mode` |
+| Questions | ✔️ | ✔️ | ✔️ | `--question-answers` иначе exit 3 |
+| Plan + review | ✔️ | ✔️ | ✔️ | `--plan` / JSON |
+| MCP / skills / jobs / subagents / workflow | ✔️ | ✔️ | ✔️ | ✔️ |
+| Skill manager (benchmark/versions) | ✔️ | ✔️ | ✔️ | CLI-подкоманды |
+| Goals / todos / queue | ✔️ | ✔️ | ✔️ | цель через флаг |
+| Models / credentials / settings | ✔️ | ✔️ | ✔️ (loopback-pin) | ✔️ (env/флаги) |
+| Diff / изменённые файлы | ✔️ | ✔️ | **✔️ у attach-клиента** | JSON-список |
+| Vision / вложения | ✔️ | путь + маркер (+делегирование субагенту) | ✔️ | путь |
 | Streaming | WS | ANSI/plain | WS | stream-json |
-| Fullscreen TUI | — | ✓ (K7) | — | — |
-| Оркестратор (executor-модель) | ✓ | ✓ | ✓ | ✓ |
+| Fullscreen TUI | — | ✔️ (K7) | — | — |
+| Оркестратор (executor-модель) | ✔️ | ✔️ | ✔️ | ✔️ |
 
 ## 12. Паритет с референсами: по осям, не клоном флагов
 

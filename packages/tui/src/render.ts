@@ -200,7 +200,7 @@ export function createTurnRenderer(options: TurnRendererOptions): TurnRenderer {
     agentDone(badge, summary) {
       const branch = badge.depth === 0 ? '' : `${'│  '.repeat(Math.max(0, badge.depth - 1))}└─ `
       const tail = summary === undefined || summary === '' ? '' : `   ${palette.paint(summary, 'Muted')}`
-      sink.write(`  ${palette.paint(branch, 'Subtle')}${palette.paint('✓', 'Success')}  ${palette.paint(badge.label, badge.token)}${tail}\n`)
+      sink.write(`  ${palette.paint(branch, 'Subtle')}${palette.paint('✔️', 'Success')}  ${palette.paint(badge.label, badge.token)}${tail}\n`)
     },
     toolCall(name, argument, call) {
       tools += 1
