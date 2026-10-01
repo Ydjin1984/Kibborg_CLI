@@ -17,6 +17,9 @@ export default defineConfig({
       '**/dist/**',
       '**/test?(s)/**',
       '**/tmp/**',
+      // The desktop deploy root is a dependency-only manifest with no code of
+      // its own; the workspace bundler has no entry to build for it.
+      '**/desktop-deploy/**',
     ],
   },
   entry: ['lib/types/{index,invariant,startup,bin}.js'],
