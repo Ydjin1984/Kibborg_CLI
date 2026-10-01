@@ -16,6 +16,19 @@
   config:
     mode: !!js process.env.DSH_TOOLS_MODE
 
+# One base row cannot run inside the packaged single-file build and stays off
+# only there ('pkg' in process); source launches keep it.
+#
+# - hmr applies with `--expose-internals` only, which the packaged Node never
+#   carries and hot-reloading a frozen snapshot is meaningless anyway.
+#   attachment-local stays ENABLED here: its sharp import is lazy, so the
+#   plugin applies without loading the native binding, and image calls inside
+#   the exe degrade to a per-call attachment error until the libvips DLL
+#   unpacking gets a proper sidecar design.
+- id: hmr
+  name: '@deepseek-ai/cordis-plugin-hmr'
+  disabled: !!js "'pkg' in process"
+
 - insert:
     # The worker-thread code runtime behind Code Mode. Inert without the tools
     # mode above selecting code|both; mirrors dsh-headless and dsh-web-app.
