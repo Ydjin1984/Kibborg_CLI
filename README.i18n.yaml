@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write Kibborg_CLI/README.md
-README.md: ccafe9d136084c0a4c76133ee612673148bf055e
-README.zh.md: 524f1c8234e01e51364ea20a9ab5e834a4055d39
+README.md: 71c3605a373183d0324fc9167420f4b99ae3a9ff
+README.zh.md: 9c307772f328979584933b6093bbcb6d1ce68c6f

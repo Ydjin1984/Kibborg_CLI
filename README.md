@@ -137,6 +137,10 @@ flowchart LR
 
 ## Установка
 
+### Вариант 0. Готовый исполняемый файл (DSKH Desktop)
+
+Одиночный бинарник без установки Node: `DSKH_Desktop-win-x64.exe` (Windows), `DSKH_Desktop-linux-x64` / `-linux-arm64` (Linux), `DSKH_Desktop-macos-arm64` (macOS 14+, Apple Silicon). Скачайте из Releases репозитория [DeepSeek_Kibborg_Harness_Desktop](https://github.com/Ydjin1984/DeepSeek_Kibborg_Harness_Desktop) или соберите сами (`pnpm exec tsx scripts/build-desktop-exe.ts`). Файл `-rg` (ripgrep) лежит рядом с бинарником и обязателен для поиска по файлам; в macOS рядом же нужен `-spawn-helper`.
+
 ### Вариант 1. Одной командой (рекомендуется)
 
 Скрипт сам клонирует harness, кладёт внутрь `Kibborg_CLI`, ставит зависимости, собирает обе части и создаёт команду `kibborg`.

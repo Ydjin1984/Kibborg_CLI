@@ -138,6 +138,10 @@ flowchart LR
 
 ## 安装
 
+### 方案 0：现成的可执行文件（DSKH Desktop）
+
+免安装 Node 的单文件二进制：`DSKH_Desktop-win-x64.exe`（Windows）、`DSKH_Desktop-linux-x64` / `-linux-arm64`（Linux）、`DSKH_Desktop-macos-arm64`（macOS 14+，Apple Silicon）。从 [DeepSeek_Kibborg_Harness_Desktop](https://github.com/Ydjin1984/DeepSeek_Kibborg_Harness_Desktop) 仓库的 Releases 下载，或自行构建（`pnpm exec tsx scripts/build-desktop-exe.ts`）。`-rg` 文件（ripgrep）与二进制同目录，文件搜索必需；macOS 还需同目录的 `-spawn-helper`。
+
 ### 方案 1：一条命令（推荐）
 
 脚本会自行克隆 harness，把 `Kibborg_CLI` 放进其中，安装依赖，构建两部分，并创建 `kibborg` 命令。
